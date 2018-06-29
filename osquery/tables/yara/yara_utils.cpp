@@ -13,10 +13,24 @@
 
 #include <osquery/config.h>
 #include <osquery/logger.h>
+#include <osquery/flags.h>
 
+#include "osquery/remote/serializers/json.h"
 #include "osquery/tables/yara/yara_utils.h"
+#include "osquery/remote/utility.h"
 
 namespace osquery {
+FLAG(string,
+     yara_tls_endpoint,
+     "",
+     "TLS/HTTPS endpoint for distributed yara retrieval"
+);
+
+FLAG(uint64,
+    yara_tls_max_attempts,
+    3,
+    "Number of attempts to retry a TLS yara retrieval request"
+);
 
 /**
  * The callback used when there are compilation problems in the rules.
@@ -26,11 +40,59 @@ void YARACompilerCallback(int error_level,
                           int line_number,
                           const char* message,
                           void* user_data) {
+  const char* nofile = "nofile";
   if (error_level == YARA_ERROR_LEVEL_ERROR) {
-    VLOG(1) << file_name << "(" << line_number << "): error: " << message;
+    VLOG(1) << (file_name ? file_name : nofile) << "(" << line_number << "): error: " << message;
   } else {
-    VLOG(1) << file_name << "(" << line_number << "): warning: " << message;
+    VLOG(1) << (file_name ? file_name : nofile) << "(" << line_number << "): warning: " << message;
   }
+}
+
+/**
+ * Download yara rule from endpoint
+ */
+Status downloadYaraRule(const std::string rule, YR_COMPILER* compiler) {
+  std::string yara_uri = TLSRequestHelper::makeURI(FLAGS_yara_tls_endpoint);
+  VLOG(1) << "YARA RULE FILE: file=" << rule  << " endpoint=" << FLAGS_yara_tls_endpoint << " url=" << yara_uri;
+
+  std::string response;
+  JSON params;
+  params.add("_verb", "POST");
+  params.add("node_key", getNodeKey("tls"));
+  params.add("path", rule);
+  auto tls_result = TLSRequestHelper::go<JSONSerializer>(
+    yara_uri, params, response, FLAGS_yara_tls_max_attempts
+  );
+  VLOG(1) << "YARA response len=" << response.size();
+
+  if (!tls_result.ok() || !response.length()) {
+    yr_compiler_destroy(compiler);
+    LOG(ERROR) << "TLS yara API did not return data";
+    return Status(1, "Endpoint did not return rule text: " + rule);
+  }
+
+  pt::ptree tree;
+  try {
+    std::stringstream input;
+    input << response;
+    pt::read_json(input, tree);
+  } catch (const pt::json_parser::json_parser_error& /* e */) {
+    LOG(ERROR) << "Could not parse JSON from TLS yara API";
+    return Status(1, "Could not parse JSON from TLS yara API: " + rule);
+  }
+  if (!tree.get("yara", "").length()) {
+    LOG(ERROR) << "TLS yara api returned blank yara rule";
+    return Status(1, "TLS yara api returned blank yara rule: " + rule);
+  }
+
+  int errors = yr_compiler_add_string(compiler, tree.get("yara", "").c_str(), nullptr);
+  if (errors > 0) {
+    yr_compiler_destroy(compiler);
+    // Errors printed via callback.
+    return Status(1, "Compilation errors");
+  }
+
+  return Status(0, "OK");
 }
 
 /**
@@ -48,40 +110,53 @@ Status compileSingleFile(const std::string& file, YR_RULES** rules) {
 
   bool compiled = false;
   YR_RULES* tmp_rules;
-  VLOG(1) << "Loading YARA signature file: " << file;
+  VLOG(1) << "Loading " << file;
 
-  // First attempt to load the file, in case it is saved (pre-compiled)
-  // rules.
-  //
-  // If you want to use saved rule files you must have them all in a single
-  // file. This is easy to accomplish with yarac(1).
-  result = yr_rules_load(file.c_str(), &tmp_rules);
-  if (result != ERROR_SUCCESS && result != ERROR_INVALID_FILE) {
-    yr_compiler_destroy(compiler);
-    return Status(1, "Error loading YARA rules: " + std::to_string(result));
-  } else if (result == ERROR_SUCCESS) {
-    *rules = tmp_rules;
-  } else {
+  if (FLAGS_yara_tls_endpoint.length()) {
+    Status tmpstatus = downloadYaraRule(file, compiler);
+    if (!tmpstatus.ok()) {
+        LOG(ERROR) << "Failed to load rule from yara tls endpoint: " << file;
+        return tmpstatus;
+    }
     compiled = true;
-    // Try to compile the rules.
-    FILE* rule_file = fopen(file.c_str(), "r");
+  } else {
+      // If this is a relative path append the default yara search path.
+      auto path = (file[0] != '/') ? kYARAHome : "";
+      path += file;
 
-    if (rule_file == nullptr) {
-      yr_compiler_destroy(compiler);
-      return Status(1, "Could not open file: " + file);
-    }
+      // First attempt to load the file, in case it is saved (pre-compiled)
+      // rules.
+      //
+      // If you want to use saved rule files you must have them all in a single
+      // file. This is easy to accomplish with yarac(1).
+      result = yr_rules_load(path.c_str(), &tmp_rules);
+      if (result != ERROR_SUCCESS && result != ERROR_INVALID_FILE) {
+        yr_compiler_destroy(compiler);
+        return Status(1, "Error loading YARA rules: " + std::to_string(result));
+      } else if (result == ERROR_SUCCESS) {
+        *rules = tmp_rules;
+      } else {
+        compiled = true;
+        // Try to compile the rules.
+        FILE* rule_file = fopen(path.c_str(), "r");
 
-    int errors =
-        yr_compiler_add_file(compiler, rule_file, nullptr, file.c_str());
+        if (rule_file == nullptr) {
+          yr_compiler_destroy(compiler);
+          return Status(1, "Could not open file: " + path);
+        }
 
-    fclose(rule_file);
-    rule_file = nullptr;
+        int errors =
+            yr_compiler_add_file(compiler, rule_file, nullptr, path.c_str());
 
-    if (errors > 0) {
-      yr_compiler_destroy(compiler);
-      // Errors printed via callback.
-      return Status(1, "Compilation errors");
-    }
+        fclose(rule_file);
+        rule_file = nullptr;
+
+        if (errors > 0) {
+          yr_compiler_destroy(compiler);
+          // Errors printed via callback.
+          return Status(1, "Compilation errors");
+        }
+      }
   }
 
   if (compiled) {
@@ -123,59 +198,67 @@ Status handleRuleFiles(const std::string& category,
     if (!item.IsString()) {
       continue;
     }
-
     YR_RULES* tmp_rules = nullptr;
     std::string rule = item.GetString();
-    if (rule[0] != '/') {
-      rule = kYARAHome + rule;
-    }
 
-    // First attempt to load the file, in case it is saved (pre-compiled)
-    // rules. Sadly there is no way to load multiple compiled rules in
-    // succession. This means that:
-    //
-    // saved1, saved2
-    // results in saved2 being the only file used.
-    //
-    // Also, mixing source and saved rules results in the saved rules being
-    // overridden by the combination of the source rules once compiled, e.g.:
-    //
-    // file1, saved1
-    // result in file1 being the only file used.
-    //
-    // If you want to use saved rule files you must have them all in a single
-    // file. This is easy to accomplish with yarac(1).
-    result = yr_rules_load(rule.c_str(), &tmp_rules);
-    if (result != ERROR_SUCCESS && result != ERROR_INVALID_FILE) {
-      yr_compiler_destroy(compiler);
-      return Status(1, "YARA load error " + std::to_string(result));
-    } else if (result == ERROR_SUCCESS) {
-      // If there are already rules there, destroy them and put new ones in.
-      if (rules.count(category) > 0) {
-        yr_rules_destroy(rules[category]);
+    if (FLAGS_yara_tls_endpoint.length()) {
+      Status tmpstatus = downloadYaraRule(rule, compiler);
+      if (!tmpstatus.ok()) {
+          LOG(ERROR) << "Failed to load rule from yara tls endpoint: " << rule;
+          return tmpstatus;
       }
-
-      rules[category] = tmp_rules;
-    } else {
       compiled = true;
-      // Try to compile the rules.
-      FILE* rule_file = fopen(rule.c_str(), "r");
-
-      if (rule_file == nullptr) {
-        yr_compiler_destroy(compiler);
-        return Status(1, "Could not open file: " + rule);
+    } else {
+      if (rule[0] != '/') {
+        rule = kYARAHome + rule;
       }
-
-      int errors =
-          yr_compiler_add_file(compiler, rule_file, nullptr, rule.c_str());
-
-      fclose(rule_file);
-      rule_file = nullptr;
-
-      if (errors > 0) {
+      // First attempt to load the file, in case it is saved (pre-compiled)
+      // rules. Sadly there is no way to load multiple compiled rules in
+      // succession. This means that:
+      //
+      // saved1, saved2
+      // results in saved2 being the only file used.
+      //
+      // Also, mixing source and saved rules results in the saved rules being
+      // overridden by the combination of the source rules once compiled, e.g.:
+      //
+      // file1, saved1
+      // result in file1 being the only file used.
+      //
+      // If you want to use saved rule files you must have them all in a single
+      // file. This is easy to accomplish with yarac(1).
+      result = yr_rules_load(rule.c_str(), &tmp_rules);
+      if (result != ERROR_SUCCESS && result != ERROR_INVALID_FILE) {
         yr_compiler_destroy(compiler);
-        // Errors printed via callback.
-        return Status(1, "Compilation errors");
+        return Status(1, "YARA load error " + std::to_string(result));
+      } else if (result == ERROR_SUCCESS) {
+        // If there are already rules there, destroy them and put new ones in.
+        if (rules.count(category) > 0) {
+          yr_rules_destroy(rules[category]);
+        }
+
+        rules[category] = tmp_rules;
+      } else {
+        compiled = true;
+        // Try to compile the rules.
+        FILE* rule_file = fopen(rule.c_str(), "r");
+
+        if (rule_file == nullptr) {
+          yr_compiler_destroy(compiler);
+          return Status(1, "Could not open file: " + rule);
+        }
+
+        int errors =
+            yr_compiler_add_file(compiler, rule_file, nullptr, rule.c_str());
+
+        fclose(rule_file);
+        rule_file = nullptr;
+
+        if (errors > 0) {
+          yr_compiler_destroy(compiler);
+          // Errors printed via callback.
+          return Status(1, "Compilation errors");
+        }
       }
     }
   }

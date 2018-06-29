@@ -17,6 +17,7 @@
 #include <sys/stat.h>
 
 #include <osquery/events.h>
+#include <osquery/logger.h>
 
 #include "osquery/events/pathset.h"
 
@@ -96,6 +97,13 @@ inline bool operator==(const INotifySubscriptionContext& lsc,
                        const INotifySubscriptionContext& rsc) {
   return ((lsc.category == rsc.category) && (lsc.opath == rsc.opath));
 }
+
+inline bool operator!=(const INotifySubscriptionContext& lsc,
+                       const INotifySubscriptionContext& rsc) {
+
+    return !(lsc == rsc);
+}
+
 
 using INotifySubscriptionContextRef =
     std::shared_ptr<INotifySubscriptionContext>;

@@ -44,6 +44,7 @@ namespace osquery {
 
 FLAG(string, aws_access_key_id, "", "AWS access key ID");
 FLAG(string, aws_secret_access_key, "", "AWS secret access key");
+FLAG(string, aws_session_token, "", "AWS session token");
 FLAG(string,
      aws_profile_name,
      "",
@@ -52,6 +53,7 @@ FLAG(string, aws_region, "", "AWS region");
 FLAG(string, aws_sts_arn_role, "", "AWS STS ARN role");
 FLAG(string, aws_sts_region, "", "AWS STS region");
 FLAG(string, aws_sts_session_name, "default", "AWS STS session name");
+FLAG(string, aws_endpoint_override, "", "AWS Endpoint override")
 FLAG(uint64,
      aws_sts_timeout,
      3600,
@@ -88,6 +90,7 @@ OsqueryHttpClientFactory::CreateHttpRequest(
     const Aws::String& uri,
     Aws::Http::HttpMethod method,
     const Aws::IOStreamFactory& streamFactory) const {
+
   return CreateHttpRequest(Aws::Http::URI(uri), method, streamFactory);
 }
 
@@ -192,7 +195,8 @@ OsqueryFlagsAWSCredentialsProvider::GetAWSCredentials() {
     return Aws::Auth::AWSCredentials("", "");
   }
   return Aws::Auth::AWSCredentials(FLAGS_aws_access_key_id,
-                                   FLAGS_aws_secret_access_key);
+                                   FLAGS_aws_secret_access_key,
+                                   FLAGS_aws_session_token);
 }
 
 Aws::Auth::AWSCredentials
@@ -443,6 +447,13 @@ Status getAWSRegion(std::string& region, bool sts) {
   VLOG(1) << "Using default AWS region: " << region;
   return Status(0);
 }
+
+
+Status getAWSEndpointOverride(std::string& endpoint_override) {
+  endpoint_override = FLAGS_aws_endpoint_override;
+  return Status(0);
+}
+
 
 Status appendLogTypeToJson(const std::string& log_type, std::string& log) {
   if (log_type.empty()) {

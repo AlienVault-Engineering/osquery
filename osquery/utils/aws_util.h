@@ -174,6 +174,15 @@ void getInstanceIDAndRegion(std::string& instance_id, std::string& region);
 Status getAWSRegion(std::string& region, bool sts = false);
 
 /**
+ * @brief Retrieve the endpoint_override from the aws_endpoint_override flag
+ *
+ * @param endpoint_override The output string containing the endpoint_override value
+ *
+ * @return 0 if successful
+ */
+Status getAWSEndpointOverride(std::string& endpoint_override);
+
+/**
  * @brief Instantiate an AWS client with the appropriate osquery configs,
  *
  * This will pull the region and authentication configs from the appropriate
@@ -190,7 +199,8 @@ Status getAWSRegion(std::string& region, bool sts = false);
 template <class Client>
 Status makeAWSClient(std::shared_ptr<Client>& client,
                      const std::string& region = "",
-                     bool sts = true) {
+                     bool sts = true,
+                     bool override = false) {
   // Set up client
   Aws::Client::ClientConfiguration client_config;
   if (region.empty()) {
@@ -201,6 +211,15 @@ Status makeAWSClient(std::shared_ptr<Client>& client,
   } else {
     client_config.region = region;
   }
+
+  if (override) {
+    std::string endpoint_override;
+    Status s = getAWSEndpointOverride(endpoint_override);
+    if (!endpoint_override.empty()) {
+       client_config.endpointOverride = endpoint_override;
+    }
+  }
+
   client = std::make_shared<Client>(
       std::make_shared<OsqueryAWSCredentialsProviderChain>(sts), client_config);
   return Status(0);

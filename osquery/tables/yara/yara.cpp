@@ -106,12 +106,8 @@ QueryData genYara(QueryContext& context) {
   for (const auto& file : sigfiles) {
     // Check if this "ad-hoc" signature file has not been used/compiled.
     if (rules.count(file) == 0) {
-      // If this is a relative path append the default yara search path.
-      auto path = (file[0] != '/') ? kYARAHome : "";
-      path += file;
-
       YR_RULES* tmp_rules = nullptr;
-      auto status = compileSingleFile(path, &tmp_rules);
+      auto status = compileSingleFile(file, &tmp_rules);
       if (!status.ok()) {
         VLOG(1) << "YARA compile error: " << status.toString();
         continue;
