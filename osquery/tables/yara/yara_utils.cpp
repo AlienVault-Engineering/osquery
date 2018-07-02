@@ -15,6 +15,7 @@
 #include <osquery/logger.h>
 #include <osquery/flags.h>
 
+#include "osquery/core/json.h"
 #include "osquery/remote/serializers/json.h"
 #include "osquery/tables/yara/yara_utils.h"
 #include "osquery/remote/utility.h"
@@ -71,21 +72,18 @@ Status downloadYaraRule(const std::string rule, YR_COMPILER* compiler) {
     return Status(1, "Endpoint did not return rule text: " + rule);
   }
 
-  pt::ptree tree;
-  try {
-    std::stringstream input;
-    input << response;
-    pt::read_json(input, tree);
-  } catch (const pt::json_parser::json_parser_error& /* e */) {
+  JSON tree;
+  Status parse_status = tree.fromString(response);
+  if (!parse_status.ok()) {
     LOG(ERROR) << "Could not parse JSON from TLS yara API";
     return Status(1, "Could not parse JSON from TLS yara API: " + rule);
   }
-  if (!tree.get("yara", "").length()) {
+  if (!tree.doc().HasMember("yara")) {
     LOG(ERROR) << "TLS yara api returned blank yara rule";
     return Status(1, "TLS yara api returned blank yara rule: " + rule);
   }
 
-  int errors = yr_compiler_add_string(compiler, tree.get("yara", "").c_str(), nullptr);
+  int errors = yr_compiler_add_string(compiler, tree.doc()["yara"].GetString(), nullptr);
   if (errors > 0) {
     yr_compiler_destroy(compiler);
     // Errors printed via callback.
