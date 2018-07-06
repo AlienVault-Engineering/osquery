@@ -14,6 +14,7 @@
 #include <osquery/config.h>
 #include <osquery/logger.h>
 #include <osquery/flags.h>
+#include <osquery/registry_factory.h>
 
 #include "osquery/core/json.h"
 #include "osquery/remote/serializers/json.h"
