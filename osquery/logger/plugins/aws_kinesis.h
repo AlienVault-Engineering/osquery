@@ -63,7 +63,7 @@ class InternalKinesisClient : public Aws::Kinesis::KinesisClient {
                                              const char *signerName=Aws::Auth::SIGV4_SIGNER,
                                              const char *requestName=nullptr) const {
              VLOG(1) << "InternalKinesis MakeRequest2";
-             return Aws::Kinesis::KinesisClient::MakeRequest(uri, method, signername, requestName);
+             return Aws::Kinesis::KinesisClient::MakeRequest(uri, method, signerName, requestName);
         }
 
         Aws::Client::HttpResponseOutcome AttemptExhaustively (const Aws::Http::URI &uri,

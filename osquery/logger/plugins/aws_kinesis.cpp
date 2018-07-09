@@ -92,7 +92,7 @@ KinesisLogForwarder::Outcome KinesisLogForwarder::internalSend(
   VLOG(1) << "internalSend 2";
   auto foo = client_->PutRecords(request);
   VLOG(1) << "internalSend 3";
-  return foo
+  return foo;
 }
 
 void KinesisLogForwarder::initializeRecord(
