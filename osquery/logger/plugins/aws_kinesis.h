@@ -26,9 +26,43 @@
 namespace osquery {
 DECLARE_uint64(aws_kinesis_period);
 
+
+class InternalKinesisClient : public Aws::Kinesis::KinesisClient {
+    public:
+        InternalKinesisClient(const Aws::Client::ClientConfiguration &clientConfiguration=Aws::Client::ClientConfiguration())
+            : Aws::Kinesis::KinesisClient(clientConfiguration)
+            {}
+
+ 	    InternalKinesisClient(const Aws::Auth::AWSCredentials &credentials,
+ 	                           const Aws::Client::ClientConfiguration &clientConfiguration=Aws::Client::ClientConfiguration())
+ 	        : Aws::Kinesis::KinesisClient(credentials, clientConfiguration)
+ 	        {}
+
+ 	    InternalKinesisClient(const std::shared_ptr< Aws::Auth::AWSCredentialsProvider > &credentialsProvider,
+ 	                            const Aws::Client::ClientConfiguration &clientConfiguration=Aws::Client::ClientConfiguration())
+ 	        : Aws::Kinesis::KinesisClient(credentialsProvider, clientConfiguration)
+ 	        {}
+
+    protected:
+        Aws::Client::JsonOutcome MakeRequest(const Aws::Http::URI &uri,
+                                const Aws::AmazonWebServiceRequest &request,
+                                Aws::Http::HttpMethod method=Aws::Http::HttpMethod::HTTP_POST,
+                                const char *signerName=Aws::Auth::SIGV4_SIGNER) const {
+            VLOG(1) << "InternalKinesis MakeRequest";
+            return Aws::Kinesis::KinesisClient::MakeRequest(uri, request, method, signerName);
+        }
+
+        Aws::Client::JsonOutcome MakeRequest(const Aws::Http::URI &uri,
+                                             Aws::Http::HttpMethod method=Aws::Http::HttpMethod::HTTP_POST,
+                                             const char *signerName=Aws::Auth::SIGV4_SIGNER,
+                                             const char *requestName=nullptr) const {
+             VLOG(1) << "InternalKinesis MakeRequest2";
+        }
+};
+
 using IKinesisLogForwarder =
     AwsLogForwarder<Aws::Kinesis::Model::PutRecordsRequestEntry,
-                    Aws::Kinesis::KinesisClient,
+                    InternalKinesisClient,
                     Aws::Kinesis::Model::PutRecordsOutcome,
                     Aws::Vector<Aws::Kinesis::Model::PutRecordsResultEntry>>;
 
