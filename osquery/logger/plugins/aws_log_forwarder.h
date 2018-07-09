@@ -210,9 +210,11 @@ class AwsLogForwarder : public BufferedLogForwarder {
       size_t failed_record_count;
       bool request_failure;
       if (!outcome.IsSuccess()) {
+        VLOG(1) << "after internalsend - failure";
         failed_record_count = batch.size();
         request_failure = true;
       } else {
+        VLOG(1) << "after internalsend - success";
         failed_record_count = getFailedRecordCount(outcome);
         request_failure = false;
       }
