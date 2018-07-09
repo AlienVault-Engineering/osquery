@@ -204,17 +204,17 @@ class AwsLogForwarder : public BufferedLogForwarder {
       }
 
       // Attempt to send the batch
-      WARNING_LOG << "before internalSend";
+      LOG(WARNING) << "before internalSend";
       auto outcome = internalSend(batch);
 
       size_t failed_record_count;
       bool request_failure;
       if (!outcome.IsSuccess()) {
-        WARNING_LOG << "after internalsend - failure";
+        LOG(WARNING) << "after internalsend - failure";
         failed_record_count = batch.size();
         request_failure = true;
       } else {
-        WARNING_LOG << "after internalsend - success";
+        LOG(WARNING) << "after internalsend - success";
         failed_record_count = getFailedRecordCount(outcome);
         request_failure = false;
       }
