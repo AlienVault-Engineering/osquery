@@ -122,7 +122,7 @@ std::shared_ptr<Aws::Http::HttpResponse> OsqueryHttpClient::MakeRequest(
   uri.SetPath(Aws::Http::URI::URLEncodePath(uri.GetPath()));
   Aws::String url = uri.GetURIString();
 
-  VLOG(1) << "MakeRequest - uri=" << url;
+  VLOG(1) << "MakeRequest - url=" << url;
 
   http::Client client(TLSTransport().getOptions());
   http::Request req(url);

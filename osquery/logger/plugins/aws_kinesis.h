@@ -31,17 +31,23 @@ class InternalKinesisClient : public Aws::Kinesis::KinesisClient {
     public:
         InternalKinesisClient(const Aws::Client::ClientConfiguration &clientConfiguration=Aws::Client::ClientConfiguration())
             : Aws::Kinesis::KinesisClient(clientConfiguration)
-            {}
+            {
+                VLOG(1) << "InternalKinesisClient 1";
+            }
 
  	    InternalKinesisClient(const Aws::Auth::AWSCredentials &credentials,
  	                           const Aws::Client::ClientConfiguration &clientConfiguration=Aws::Client::ClientConfiguration())
  	        : Aws::Kinesis::KinesisClient(credentials, clientConfiguration)
- 	        {}
+ 	        {
+                VLOG(1) << "InternalKinesisClient 2";
+ 	        }
 
  	    InternalKinesisClient(const std::shared_ptr< Aws::Auth::AWSCredentialsProvider > &credentialsProvider,
  	                            const Aws::Client::ClientConfiguration &clientConfiguration=Aws::Client::ClientConfiguration())
  	        : Aws::Kinesis::KinesisClient(credentialsProvider, clientConfiguration)
- 	        {}
+ 	        {
+                VLOG(1) << "InternalKinesisClient 3";
+ 	        }
 
     protected:
         Aws::Client::JsonOutcome MakeRequest(const Aws::Http::URI &uri,
@@ -59,6 +65,68 @@ class InternalKinesisClient : public Aws::Kinesis::KinesisClient {
              VLOG(1) << "InternalKinesis MakeRequest2";
              return Aws::Kinesis::KinesisClient(MakeRequest(uri, method, signername, requestName));
         }
+
+        Aws::Client::HttpResponseOutcome AttemptExhaustively (const Aws::Http::URI &uri,
+                                                              const Aws::AmazonWebServiceRequest &request,
+                                                              Aws::Http::HttpMethod httpMethod,
+                                                              const char *signerName) const
+        {
+            VLOG(1) << "FOO! 1";
+            return Aws::Kinesis::KinesisClient::AttemptExhaustively(uri, request, httpMethod, signerName);
+        }
+
+        Aws::Client::HttpResponseOutcome AttemptExhaustively (const Aws::Http::URI &uri,
+                                                              Aws::Http::HttpMethod httpMethod,
+                                                              const char *signerName,
+                                                              const char *requestName=nullptr) const
+        {
+            VLOG(1) << "FOO! 2";
+            return Aws::Kinesis::KinesisClient::AttemptExhaustively(uri, httpMethod, signerName, requestName);
+        }
+
+        Aws::Client::HttpResponseOutcome AttemptOneRequest (const Aws::Http::URI &uri,
+                                                            const Aws::AmazonWebServiceRequest &request,
+                                                            Aws::Http::HttpMethod httpMethod,
+                                                            const char *signerName) const
+        {
+            VLOG(1) << "FOO! 3";
+            return Aws::Kinesis::KinesisClient::AttemptOneRequest(uri, request, httpMethod, signerName);
+        }
+
+        Aws::Client::HttpResponseOutcome AttemptOneRequest (const Aws::Http::URI &uri,
+                                                           Aws::Http::HttpMethod httpMethod,
+                                                           const char *signerName,
+                                                           const char *requestName=nullptr) const
+        {
+            VLOG(1) << "FOO! 4";
+            return Aws::Kinesis::KinesisClient::AttemptOneRequest(uri, httpMethod, signerName, requestName);
+        }
+
+        Aws::Client::StreamOutcome MakeRequestWithUnparsedResponse (const Aws::Http::URI &uri,
+                                                                    const Aws::AmazonWebServiceRequest &request,
+                                                                    Aws::Http::HttpMethod method=Aws::Http::HttpMethod::HTTP_POST,
+                                                                    const char *signerName=Aws::Auth::SIGV4_SIGNER) const
+        {
+            VLOG(1) << "FOO! 5";
+            return Aws::Kinesis::KinesisClient::MakeRequestWithUnparsedResponse(uri, request, method, signerName);
+        }
+
+        Aws::Client::StreamOutcome MakeRequestWithUnparsedResponse (const Aws::Http::URI &uri,
+                                                                    Aws::Http::HttpMethod method=Aws::Http::HttpMethod::HTTP_POST,
+                                                                    const char *signerName=Aws::Auth::SIGV4_SIGNER,
+                                                                    const char *requestName=nullptr) const
+        {
+            VLOG(1) << "FOO! 6";
+            return Aws::Kinesis::KinesisClient::MakeRequestWithUnparsedResponse(uri, method, signerName, requestName);
+        }
+
+        virtual void BuildHttpRequest (const Aws::AmazonWebServiceRequest &request,
+                                       const std::shared_ptr< Aws::Http::HttpRequest > &httpRequest) const
+        {
+            VLOG(1) << "FOO! 7";
+            return Aws::Kinesis::KinesisClient::BuildHttpRequest(request, httpRequest);
+        }
+
 };
 
 using IKinesisLogForwarder =
