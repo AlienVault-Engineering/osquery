@@ -215,6 +215,7 @@ Status makeAWSClient(std::shared_ptr<Client>& client,
   if (override) {
     std::string endpoint_override;
     Status s = getAWSEndpointOverride(endpoint_override);
+    VLOG(1) << "makeAWSClient - override=true, endpoint_override=" << endpoint_override;
     if (!endpoint_override.empty()) {
        client_config.endpointOverride = endpoint_override;
     }

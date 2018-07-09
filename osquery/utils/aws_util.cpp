@@ -92,6 +92,7 @@ OsqueryHttpClientFactory::CreateHttpRequest(
     Aws::Http::HttpMethod method,
     const Aws::IOStreamFactory& streamFactory) const {
 
+  VLOG(1) << "CreateHttpRequest1 - uri=" << uri;
   return CreateHttpRequest(Aws::Http::URI(uri), method, streamFactory);
 }
 
@@ -103,6 +104,7 @@ OsqueryHttpClientFactory::CreateHttpRequest(
   auto request = std::make_shared<Standard::StandardHttpRequest>(uri, method);
   request->SetResponseStreamFactory(streamFactory);
 
+  VLOG(1) << "CreateHttpRequest2 - uri=" << uri.GetURIString();
   return request;
 }
 
@@ -119,6 +121,8 @@ std::shared_ptr<Aws::Http::HttpResponse> OsqueryHttpClient::MakeRequest(
   Aws::Http::URI uri = request.GetUri();
   uri.SetPath(Aws::Http::URI::URLEncodePath(uri.GetPath()));
   Aws::String url = uri.GetURIString();
+
+  VLOG(1) << "MakeRequest - uri=" << url;
 
   http::Client client(TLSTransport().getOptions());
   http::Request req(url);
