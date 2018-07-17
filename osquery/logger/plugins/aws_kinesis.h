@@ -120,10 +120,10 @@ class InternalKinesisClient : public Aws::Kinesis::KinesisClient {
             return Aws::Kinesis::KinesisClient::MakeRequestWithUnparsedResponse(uri, method, signerName, requestName);
         }
 
-        virtual void BuildHttpRequest (const Aws::AmazonWebServiceRequest &request,
+        virtual void BuildHttpRequest(const Aws::AmazonWebServiceRequest &request,
                                        const std::shared_ptr< Aws::Http::HttpRequest > &httpRequest) const
         {
-            VLOG(1) << "FOO! 7";
+            VLOG(1) << "InternalKinesisClient - BuildHttpRequest(request, " << httpRequest->GetUri().GetURIString() << ")";
             return Aws::Kinesis::KinesisClient::BuildHttpRequest(request, httpRequest);
         }
 
