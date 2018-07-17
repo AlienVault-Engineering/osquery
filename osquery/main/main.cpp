@@ -175,6 +175,7 @@ int startOsquery(int argc, char* argv[], std::function<void()> shutdown) {
   if (FLAGS_profile == 0) {
     // Begin adhoc io service thread.
     startIOService();
+  }
 
   if (runner.isDaemon()) {
     return startDaemon(runner);
