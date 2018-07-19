@@ -26,7 +26,9 @@
 namespace osquery {
 DECLARE_uint64(aws_kinesis_period);
 
-
+/*
+// I made this to try to diagnose some problems in Kinesis client.  Leaving it here for now because it took a while to make
+// and I may want it again
 class InternalKinesisClient : public Aws::Kinesis::KinesisClient {
     public:
         InternalKinesisClient(const Aws::Client::ClientConfiguration &clientConfiguration=Aws::Client::ClientConfiguration())
@@ -128,10 +130,12 @@ class InternalKinesisClient : public Aws::Kinesis::KinesisClient {
         }
 
 };
+*/
+
 
 using IKinesisLogForwarder =
     AwsLogForwarder<Aws::Kinesis::Model::PutRecordsRequestEntry,
-                    InternalKinesisClient,
+                    Aws::Kinesis::KinesisClient,
                     Aws::Kinesis::Model::PutRecordsOutcome,
                     Aws::Vector<Aws::Kinesis::Model::PutRecordsResultEntry>>;
 
