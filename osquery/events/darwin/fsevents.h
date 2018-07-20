@@ -30,6 +30,9 @@ struct FSEventsSubscriptionContext : public SubscriptionContext {
   /// Subscription the following filesystem path.
   std::string path;
 
+  /// original path, read from config
+  std::string opath;
+
   /// Limit the FSEvents actions to the subscriptioned mask (if not 0).
   FSEventStreamEventFlags mask{0};
 
