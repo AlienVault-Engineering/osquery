@@ -40,7 +40,7 @@ class FileEventSubscriber : public EventSubscriber<INotifyEventPublisher> {
    * @brief This exports a single Callback for INotifyEventPublisher events.
    *
    * @param ec The EventCallback type receives an EventContextRef substruct
-   * for the INotifyEventPublisher declared in this EventSubscriber subclass.
+   * for the INotifyEventPublisher declared in this EventSubscriber subclass.x
    *
    * @return Was the callback successful.
    */

@@ -10,6 +10,8 @@
 #include <osquery/events.h>
 #include <osquery/filesystem.h>
 #include <osquery/tables.h>
+#include <osquery/registry.h>
+
 
 #include "osquery/events/windows/read_directory_changes.h"
 #include "osquery/tests/test_util.h"
