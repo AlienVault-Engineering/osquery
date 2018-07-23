@@ -201,7 +201,6 @@ Status makeAWSClient(std::shared_ptr<Client>& client,
                      const std::string& region = "",
                      bool sts = true,
                      bool override = false) {
-  VLOG(1) << "makeAWSClient - region=" << region << " sts=" << sts << " override=" << override;
 
   // Set up client
   Aws::Client::ClientConfiguration client_config;
@@ -210,7 +209,6 @@ Status makeAWSClient(std::shared_ptr<Client>& client,
     if (!s.ok()) {
       return s;
     }
-    VLOG(1) << "makeAWSClient set region to " << client_config.region;
   } else {
     client_config.region = region;
   }
@@ -218,9 +216,7 @@ Status makeAWSClient(std::shared_ptr<Client>& client,
   if (override) {
     std::string endpoint_override;
     Status s = getAWSEndpointOverride(endpoint_override);
-    VLOG(1) << "makeAWSClient - override=true, endpoint_override=" << endpoint_override;
     if (!endpoint_override.empty()) {
-       VLOG(1) << "actually overriding!";
        client_config.endpointOverride = endpoint_override;
     }
   }
