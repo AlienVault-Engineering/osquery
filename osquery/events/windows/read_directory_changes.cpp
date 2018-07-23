@@ -4,6 +4,7 @@
 #include <osquery/filesystem.h>
 #include <osquery/logger.h>
 #include <osquery/system.h>
+#include <osquery/registry_factory.h>
 
 #include "osquery/events/windows/read_directory_changes.h"
 
