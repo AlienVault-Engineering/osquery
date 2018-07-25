@@ -218,6 +218,7 @@ Status makeAWSClient(std::shared_ptr<Client>& client,
     Status s = getAWSEndpointOverride(endpoint_override);
     if (!endpoint_override.empty()) {
        client_config.endpointOverride = endpoint_override;
+       VLOG(1) << "Setting AWS Client Endpoint Override to ", client_config.endpointOverride;
     }
   }
 
