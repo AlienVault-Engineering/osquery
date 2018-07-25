@@ -213,15 +213,15 @@ Status makeAWSClient(std::shared_ptr<Client>& client,
     client_config.region = region;
   }
 
-  VLOG(1) << "aws client override setting=", override;
+  VLOG(1) << "aws client override setting=" << override;
   if (override) {
     std::string endpoint_override;
     Status s = getAWSEndpointOverride(endpoint_override);
-    VLOG(1) << "AWS endpoint_override flag", endpoint_override;
+    VLOG(1) << "AWS endpoint_override flag" << endpoint_override;
     if (!endpoint_override.empty()) {
        client_config.endpointOverride = endpoint_override;
     }
-    VLOG(1) << "AWS endpointOverride=", client_config.endpointOverride;
+    VLOG(1) << "AWS endpointOverride=" << client_config.endpointOverride;
   }
 
   client = std::make_shared<Client>(
