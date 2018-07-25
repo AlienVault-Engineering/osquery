@@ -205,7 +205,6 @@ class AwsLogForwarder : public BufferedLogForwarder {
       }
 
       // Attempt to send the batch
-      LOG(WARNING) << "before internalSend";
       auto outcome = internalSend(batch);
 
       size_t failed_record_count;
