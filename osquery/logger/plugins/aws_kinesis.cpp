@@ -87,11 +87,8 @@ Status KinesisLogForwarder::internalSetup() {
 KinesisLogForwarder::Outcome KinesisLogForwarder::internalSend(
     const Batch& batch) {
   Aws::Kinesis::Model::PutRecordsRequest request;
-  VLOG(1) << "internalSend 1 - stream=" << FLAGS_aws_kinesis_stream;
   request.WithStreamName(FLAGS_aws_kinesis_stream).SetRecords(batch);
-  VLOG(1) << "internalSend 2";
   auto foo = client_->PutRecords(request);
-  VLOG(1) << "internalSend 3";
   return foo;
 }
 

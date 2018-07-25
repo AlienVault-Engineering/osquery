@@ -211,11 +211,9 @@ class AwsLogForwarder : public BufferedLogForwarder {
       size_t failed_record_count;
       bool request_failure;
       if (!outcome.IsSuccess()) {
-        LOG(WARNING) << "after internalsend - failure";
         failed_record_count = batch.size();
         request_failure = true;
       } else {
-        LOG(WARNING) << "after internalsend - success";
         failed_record_count = getFailedRecordCount(outcome);
         request_failure = false;
       }
