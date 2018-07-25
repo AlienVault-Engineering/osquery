@@ -58,8 +58,8 @@ class AwsLogForwarder : public BufferedLogForwarder {
       return s;
     }
 
-    // s = makeAWSClient<Client>(client_, "", true, true);
-    s = makeAWSClient<Client>(client_, "");
+    s = makeAWSClient<Client>(client_, "", true, true);
+    // s = makeAWSClient<Client>(client_, "");
     if (!s.ok()) {
       return s;
     }
