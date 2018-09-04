@@ -118,7 +118,10 @@ void YARAEventSubscriber::configure() {
       VLOG(1) << "Added YARA listener to: " << file;
       auto sc = createSubscriptionContext();
       sc->recursive = 0;
-      sc->opath = sc->path = file;
+      sc->path = file;
+#if __linux__
+      sc->opath = file;
+#endif
       sc->mask = FILE_CHANGE_MASK;
       sc->category = yara_path_element.first;
       subscribe(&YARAEventSubscriber::Callback, sc);
