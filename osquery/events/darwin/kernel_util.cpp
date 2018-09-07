@@ -49,7 +49,7 @@ void loadKernelExtension() {
 
   // Find the panic log file for the last panic if we are booting out of panic.
   results =
-      SQL::SQL(
+      SQL(
           "SELECT f.path AS path FROM (SELECT * FROM nvram WHERE name like "
           "'%panic%') AS nv JOIN (SELECT * FROM file WHERE "
           "directory='/Library/Logs/DiagnosticReports/' AND path like "
