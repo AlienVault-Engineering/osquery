@@ -74,7 +74,8 @@ OSQUERYCTL_PATH="$SCRIPT_DIR/osqueryctl"
 
 SCRIPT_PREFIX_TEXT="#!/usr/bin/env bash
 
-set -e
+set -e -x
+echo STARTING POSTINSTALL
 "
 
 POSTINSTALL_UNLOAD_TEXT="
