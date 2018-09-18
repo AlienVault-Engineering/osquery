@@ -9,6 +9,7 @@
 #  You may select, at your option, one of the above-listed licenses.
 
 set -e
+set -x
 
 # Helpful defines for the provisioning process.
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -212,7 +213,7 @@ function main() {
   else
     DEPS_DIR="/usr/local/osquery"
   fi
-
+  echo "DEPS_DIR = ${DEPS_DIR}"
   deps_version $DEPS_DIR $DEPS_VERSION
 
   if [[ "$ACTION" = "clean" ]]; then

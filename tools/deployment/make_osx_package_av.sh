@@ -2,8 +2,7 @@
 
 #  Copyright (c) 2014-present, Facebook, Inc.
 #  All rights reserved.
-#
-#  This source code is licensed under both the Apache 2.0 license (found in the
+##  This source code is licensed under both the Apache 2.0 license (found in the
 #  LICENSE file in the root directory of this source tree) and the GPLv2 (found
 #  in the COPYING file in the root directory of this source tree).
 #  You may select, at your option, one of the above-listed licenses.
@@ -13,9 +12,9 @@ set -e
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 SOURCE_DIR="$SCRIPT_DIR/../.."
 BUILD_DIR="$SOURCE_DIR/build/"
-if [[ ! -z "$DEBUG" ]]; then
-  BUILD_DIR="${BUILD_DIR}debug_"
-fi
+#if [[ ! -z "$DEBUG" ]]; then
+#  BUILD_DIR="${BUILD_DIR}debug_"
+#fi
 
 if [[ "$BUILD_VERSION" == "10.11" ]]; then
   BUILD_DIR="${BUILD_DIR}darwin"
@@ -31,29 +30,30 @@ distro "darwin" BUILD_VERSION
 # Binary identifiers
 VERSION=`(cd $SOURCE_DIR; git describe --tags HEAD) || echo 'unknown-version'`
 APP_VERSION=${OSQUERY_BUILD_VERSION:="$VERSION"}
-APP_IDENTIFIER="com.facebook.osquery"
-KERNEL_APP_IDENTIFIER="com.facebook.osquery.kernel"
+APP_IDENTIFIER="com.alienvault.agent"
+# KERNEL_APP_IDENTIFIER="com.facebook.osquery.kernel"
 LD_IDENTIFIER="com.facebook.osqueryd"
 LD_INSTALL="/Library/LaunchDaemons/$LD_IDENTIFIER.plist"
 OUTPUT_PKG_PATH="$BUILD_DIR/osquery-$APP_VERSION.pkg"
-OUTPUT_DEBUG_PKG_PATH="$BUILD_DIR/osquery-debug-$APP_VERSION.pkg"
-KERNEL_OUTPUT_PKG_PATH="$BUILD_DIR/osquery-kernel-${APP_VERSION}.pkg"
+# OUTPUT_DEBUG_PKG_PATH="$BUILD_DIR/osquery-debug-$APP_VERSION.pkg"
+# KERNEL_OUTPUT_PKG_PATH="$BUILD_DIR/osquery-kernel-${APP_VERSION}.pkg"
 AUTOSTART=false
 CLEAN=false
+EXTRA_BINARY_PATH=
 
 # Config files
 LAUNCHD_SRC="$SCRIPT_DIR/$LD_IDENTIFIER.plist"
 LAUNCHD_DST="/private/var/osquery/$LD_IDENTIFIER.plist"
 NEWSYSLOG_SRC="$SCRIPT_DIR/$LD_IDENTIFIER.conf"
 NEWSYSLOG_DST="/private/var/osquery/$LD_IDENTIFIER.conf"
-PACKS_SRC="$SOURCE_DIR/packs"
-PACKS_DST="/private/var/osquery/packs/"
-LENSES_LICENSE="${OSQUERY_DEPS}/Cellar/augeas/*/COPYING"
-LENSES_SRC="${OSQUERY_DEPS}/share/augeas/lenses/dist"
-LENSES_DST="/private/var/osquery/lenses/"
-OSQUERY_EXAMPLE_CONFIG_SRC="$SCRIPT_DIR/osquery.example.conf"
-OSQUERY_EXAMPLE_CONFIG_DST="/private/var/osquery/osquery.example.conf"
-OSQUERY_CONFIG_SRC=""
+#PACKS_SRC="$SOURCE_DIR/packs"
+#PACKS_DST="/private/var/osquery/packs/"
+#LENSES_LICENSE="${OSQUERY_DEPS}/Cellar/augeas/*/COPYING"
+#LENSES_SRC="${OSQUERY_DEPS}/share/augeas/lenses/dist"
+#LENSES_DST="/private/var/osquery/lenses/"
+# OSQUERY_EXAMPLE_CONFIG_SRC="$SCRIPT_DIR/osquery.example.conf"
+# OSQUERY_EXAMPLE_CONFIG_DST="/private/var/osquery/osquery.example.conf"
+# OSQUERY_CONFIG_SRC=""
 OSQUERY_CONFIG_DST="/private/var/osquery/osquery.conf"
 OSQUERY_DB_LOCATION="/private/var/osquery/osquery.db/"
 OSQUERY_LOG_DIR="/private/var/log/osquery/"
@@ -65,24 +65,12 @@ OSQUERY_PKG_INCLUDE_DIRS=()
 
 WORKING_DIR=/tmp/osquery_packaging
 INSTALL_PREFIX="$WORKING_DIR/prefix"
-DEBUG_PREFIX="$WORKING_DIR/debug"
+# DEBUG_PREFIX="$WORKING_DIR/debug"
 SCRIPT_ROOT="$WORKING_DIR/scripts"
 PREINSTALL="$SCRIPT_ROOT/preinstall"
 POSTINSTALL="$SCRIPT_ROOT/postinstall"
 OSQUERYCTL_PATH="$SCRIPT_DIR/osqueryctl"
 
-# Kernel extension identifiers and config files
-KERNEL_INLINE=false
-KERNEL_UNLOAD_SCRIPT="$SOURCE_DIR/kernel/tools/unload_with_retry.sh"
-KERNEL_EXTENSION_IDENTIFIER="com.facebook.security.osquery"
-KERNEL_EXTENSION_SRC="$BUILD_DIR/kernel/osquery.kext"
-KERNEL_EXTENSION_DST="/Library/Extensions/osquery.kext"
-
-KERNEL_WORKING_DIR=/tmp/osquery_kernel_packaging
-KERNEL_INSTALL_PREFIX="$KERNEL_WORKING_DIR/prefix"
-KERNEL_SCRIPT_ROOT="$KERNEL_WORKING_DIR/scripts"
-KERNEL_PREINSTALL="$KERNEL_SCRIPT_ROOT/preinstall"
-KERNEL_POSTINSTALL="$KERNEL_SCRIPT_ROOT/postinstall"
 
 SCRIPT_PREFIX_TEXT="#!/usr/bin/env bash
 
@@ -99,14 +87,6 @@ POSTINSTALL_AUTOSTART_TEXT="
 cp $LAUNCHD_DST $LD_INSTALL
 touch $FLAGFILE_DST
 launchctl load $LD_INSTALL
-"
-
-KERNEL_POSTINSTALL_UNLOAD_TEXT="
-./unload_with_retry.sh
-"
-
-KERNEL_POSTINSTALL_AUTOSTART_TEXT="
-kextload $KERNEL_EXTENSION_DST
 "
 
 POSTINSTALL_CLEAN_TEXT="
@@ -155,6 +135,9 @@ function parse_args() {
                               ;;
       -x | --clean )          CLEAN=true
                               ;;
+      --extra-binary-path )   shift
+                              EXTRA_BINARY_PATH=$1
+                              ;;
       -h | --help )           usage
                               ;;
       * )                     usage
@@ -201,12 +184,16 @@ function main() {
   cp "$BUILD_DIR/osquery/osqueryi" $BINARY_INSTALL_DIR
   cp "$BUILD_DIR/osquery/osqueryd" $BINARY_INSTALL_DIR
   strip $BINARY_INSTALL_DIR/*
-  cp "$OSQUERYCTL_PATH" $BINARY_INSTALL_DIR
+  cp $OSQUERYCTL_PATH $BINARY_INSTALL_DIR
 
-  BINARY_DEBUG_DIR="$DEBUG_PREFIX/private/var/osquery/debug"
-  mkdir -p "$BINARY_DEBUG_DIR"
-  cp "$BUILD_DIR/osquery/osqueryi" $BINARY_DEBUG_DIR/osqueryi.debug
-  cp "$BUILD_DIR/osquery/osqueryd" $BINARY_DEBUG_DIR/osqueryd.debug
+  if [ ! -z "${EXTRA_BINARY_PATH}" ]; then
+    cp "${EXTRA_BINARY_PATH}/"/* $BINARY_INSTALL_DIR
+  fi
+
+#  BINARY_DEBUG_DIR="$DEBUG_PREFIX/private/var/osquery/debug"
+#  mkdir -p "$BINARY_DEBUG_DIR"
+#  cp "$BUILD_DIR/osquery/osqueryi" $BINARY_DEBUG_DIR/osqueryi.debug
+#  cp "$BUILD_DIR/osquery/osqueryd" $BINARY_DEBUG_DIR/osqueryd.debug
 
   # Create the prefix log dir and copy source configs.
   mkdir -p $INSTALL_PREFIX/$OSQUERY_LOG_DIR
@@ -218,14 +205,14 @@ function main() {
   # Move configurations into the packaging root.
   log "copying osquery configurations"
   mkdir -p `dirname $INSTALL_PREFIX$LAUNCHD_DST`
-  mkdir -p $INSTALL_PREFIX$PACKS_DST
-  mkdir -p $INSTALL_PREFIX$LENSES_DST
+  # mkdir -p $INSTALL_PREFIX$PACKS_DST
+  # mkdir -p $INSTALL_PREFIX$LENSES_DST
   cp $LAUNCHD_SRC $INSTALL_PREFIX$LAUNCHD_DST
   cp $NEWSYSLOG_SRC $INSTALL_PREFIX$NEWSYSLOG_DST
-  cp $OSQUERY_EXAMPLE_CONFIG_SRC $INSTALL_PREFIX$OSQUERY_EXAMPLE_CONFIG_DST
-  cp $PACKS_SRC/* $INSTALL_PREFIX$PACKS_DST
-  cp $LENSES_LICENSE $INSTALL_PREFIX/$LENSES_DST
-  cp $LENSES_SRC/*.aug $INSTALL_PREFIX$LENSES_DST
+  # cp $OSQUERY_EXAMPLE_CONFIG_SRC $INSTALL_PREFIX$OSQUERY_EXAMPLE_CONFIG_DST
+  # cp $PACKS_SRC/* $INSTALL_PREFIX$PACKS_DST
+  # cp $LENSES_LICENSE $INSTALL_PREFIX/$LENSES_DST
+  # cp $LENSES_SRC/*.aug $INSTALL_PREFIX$LENSES_DST
   if [[ "$TLS_CERT_CHAIN_SRC" != "" && -f "$TLS_CERT_CHAIN_SRC" ]]; then
     cp $TLS_CERT_CHAIN_SRC $INSTALL_PREFIX$TLS_CERT_CHAIN_DST
   fi
@@ -263,89 +250,6 @@ function main() {
            --version $APP_VERSION       \
            $OUTPUT_PKG_PATH 2>&1  1>/dev/null
   log "package created at $OUTPUT_PKG_PATH"
-
-  pkgbuild --root $DEBUG_PREFIX          \
-           --identifier $APP_IDENTIFIER.debug \
-           --version $APP_VERSION             \
-           $OUTPUT_DEBUG_PKG_PATH 2>&1  1>/dev/null
-  log "package created at $OUTPUT_DEBUG_PKG_PATH"
-
-
-  # We optionally create an RPM equivalent.
-  FPM=$(which fpm || true)
-  RPMBUILD=$(which rpmbuild || true)
-  if [[ ! "$FPM" = "" && ! "$RPMBUILD" = "" ]]; then
-    rm -f "$OUTPUT_RPM_PATH"
-    log "creating RPM equivalent"
-
-    # Yes, RPMs on OS X like i386 as the arch.
-    PACKAGE_ARCH=i386
-    PACKAGE_ITERATION="1.darwin"
-    RPM_APP_VERSION=$(echo ${APP_VERSION}|tr '-' '_')
-    OUTPUT_RPM_PATH="$BUILD_DIR/osquery-$RPM_APP_VERSION-$PACKAGE_ITERATION.$PACKAGE_ARCH.rpm"
-    rm -f $OUTPUT_RPM_PATH
-    CMD="$FPM -s dir -t rpm \
-      -n osquery \
-      -v $RPM_APP_VERSION \
-      --iteration $PACKAGE_ITERATION -a $PACKAGE_ARCH \
-      -p $OUTPUT_RPM_PATH \
-      --url https://osquery.io -m osquery@osquery.io \
-      --vendor Facebook --license BSD \
-      \"$INSTALL_PREFIX/=/\""
-    eval "$CMD"
-    log "RPM package (also) created at $OUTPUT_RPM_PATH"
-
-    OUTPUT_DEBUG_RPM_PATH="$BUILD_DIR/osquery-debug-$RPM_APP_VERSION-$PACKAGE_ITERATION.$PACKAGE_ARCH.rpm"
-    rm -f $OUTPUT_DEBUG_RPM_PATH
-    CMD="$FPM -s dir -t rpm \
-      -n osquery-debug \
-      -v $RPM_APP_VERSION \
-      --iteration $PACKAGE_ITERATION -a $PACKAGE_ARCH \
-      -p $OUTPUT_DEBUG_RPM_PATH \
-      --url https://osquery.io -m osquery@osquery.io \
-      --vendor Facebook --license BSD \
-      \"$DEBUG_PREFIX/=/\""
-    eval "$CMD"
-    log "RPM package (also) created at $OUTPUT_DEBUG_RPM_PATH"
-  else
-    log "Skipping OS X RPM package build: Cannot find fpm and rpmbuild"
-  fi
-
-  # Check if a kernel extension should be built alongside.
-  if [[ -d "$KERNEL_EXTENSION_SRC" ]]; then
-    rm -rf $KERNEL_WORKING_DIR
-    rm -f $KERNEL_OUTPUT_PKG_PATH
-    mkdir -p $KERNEL_INSTALL_PREFIX
-    mkdir -p $KERNEL_SCRIPT_ROOT
-
-    log "copying osquery kernel bundles"
-    mkdir -p $KERNEL_INSTALL_PREFIX$KERNEL_EXTENSION_DST
-    cp -R $KERNEL_EXTENSION_SRC/ $KERNEL_INSTALL_PREFIX$KERNEL_EXTENSION_DST
-
-    log "finalizing kernel preinstall and postinstall scripts"
-    if [ $AUTOSTART == true ]; then
-      echo "$SCRIPT_PREFIX_TEXT" > $KERNEL_POSTINSTALL
-      chmod +x $KERNEL_POSTINSTALL
-      # Install the normal post install unload to unload the daemons.
-      echo "$POSTINSTALL_UNLOAD_TEXT" >> $KERNEL_POSTINSTALL
-      # Handler kernel extension unloading/reloading.
-      cp $KERNEL_UNLOAD_SCRIPT $KERNEL_SCRIPT_ROOT
-      echo "$KERNEL_POSTINSTALL_UNLOAD_TEXT" >> $KERNEL_POSTINSTALL
-      echo "$KERNEL_POSTINSTALL_AUTOSTART_TEXT" >> $KERNEL_POSTINSTALL
-      # Install the normal post install reload to reload daemons.
-      echo "$POSTINSTALL_AUTOSTART_TEXT" >> $KERNEL_POSTINSTALL
-    fi
-
-    log "creating kernel package"
-    pkgbuild --root $KERNEL_INSTALL_PREFIX             \
-             --scripts $KERNEL_SCRIPT_ROOT             \
-             --identifier $KERNEL_APP_IDENTIFIER       \
-             --version ${APP_VERSION}                  \
-             $KERNEL_OUTPUT_PKG_PATH 2>&1  1>/dev/null
-    log "kernel package created at $KERNEL_OUTPUT_PKG_PATH"
-  else
-    log "skipping kernel package, no kext found"
-  fi
 
 }
 
