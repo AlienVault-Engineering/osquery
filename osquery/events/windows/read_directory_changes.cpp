@@ -60,6 +60,7 @@ void RDChangesEventPublisher::configure() {
   for (auto& sub : subscriptions_) {
     auto sc = getSubscriptionContext(sub->context);
     auto paths = monitorSubscription(sc);
+    //VLOG(1) << "RDChanges adding " << paths.size() << " paths for sub";
     paths_.insert(paths.begin(), paths.end());
   }
 }
@@ -68,6 +69,9 @@ std::set<std::string> RDChangesEventPublisher::monitorSubscription(
     RDChangesSubscriptionContextRef& sc) {
   std::set<std::string> rpaths;
   std::string discovered = sc->path;
+
+  // the docs use '%' and '%%' as wildcards, converted to * with glob
+
   if (sc->path.find("**") != std::string::npos) {
     sc->recursive = true;
     discovered = sc->path.substr(0, sc->path.find("**"));
@@ -136,6 +140,7 @@ bool RDChangesEventPublisher::addMonitor(const std::string& path,
     if (!thread)
       thread = (HANDLE)_beginthreadex(NULL, 0, rdcp::CReadChangesServer::ThreadStartProc,
                                       server, 0, &thread_id);
+    //VLOG(1) << "addMonitor new CReadChanges for path:" << path;
     request = new rdcp::CReadChangesRequest(server, path.c_str(), recursive, filter, 16384);
     QueueUserAPC(rdcp::CReadChangesServer::AddDirectoryProc, thread, (ULONG_PTR)request);
   }
@@ -174,8 +179,28 @@ Status RDChangesEventPublisher::run() {
   return Status(0, "OK");
 }
 
+/*
+ * This is fired once for each configured path to monitor.
+ * This function should filter out matching paths, so events are only
+ * sent to matching subscription contexts.
+ */
 bool RDChangesEventPublisher::shouldFire(const RDChangesSubscriptionContextRef& sc,
                                          const RDChangesEventContextRef& ec) const {
+
+  //VLOG(1) << "shouldFire sc.category:" << sc->category << " EV.path:" << ec->path << (sc->recursive ? " RECURS" : "") << " sc.path:" << sc->path;
+
+  if (sc->recursive && !sc->recursive_match) {
+    auto found = ec->path.find(sc->path);
+    if (found != 0) {
+      return false;
+    }
+  } else {
+    if (false == PathMatchSpec(ec->path.c_str(), (sc->path + "*").c_str())) {
+      return false;
+    }
+  }
+
+  // TODO: what about recursive exclude paths?
   // exclude paths should be applied at last
   auto path = ec->path.substr(0, ec->path.rfind('\\'));
   // Need to have two finds,
