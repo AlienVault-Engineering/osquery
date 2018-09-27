@@ -27,8 +27,6 @@ namespace osquery {
  */
 const std::set<std::string> kVerboseOptions{
     "verbose",
-    "verbose_debug",
-    "debug",
     "minloglevel",
     "logger_min_status",
     "stderrthreshold",
@@ -80,6 +78,11 @@ Status OptionsConfigParserPlugin::update(const std::string& source,
       value = std::to_string(option.value.GetInt());
     } else if (option.value.IsNumber()) {
       value = std::to_string(option.value.GetUint64());
+    } else if (option.value.IsObject() || option.value.IsArray()) {
+      auto doc = JSON::newFromValue(option.value);
+      doc.toString(value);
+    } else {
+      LOG(WARNING) << "Cannot parse unknown value type for option: " << name;
     }
 
     if (value.empty() || name.empty()) {

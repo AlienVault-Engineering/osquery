@@ -15,10 +15,10 @@
 #include <vector>
 
 #include <osquery/core.h>
+#include <osquery/core/json.h>
+#include <osquery/expected.h>
 #include <osquery/plugin.h>
 #include <osquery/query.h>
-
-#include "osquery/core/json.h"
 
 namespace osquery {
 
@@ -44,11 +44,22 @@ class Config : private boost::noncopyable {
  private:
   Config();
 
+  void backupConfig(const std::map<std::string, std::string>& config);
+
  public:
   ~Config();
 
   /// Singleton accessor.
   static Config& get();
+
+  enum class RestoreConfigError { DatabaseError = 1 };
+  /**
+   * @brief restoreConfigBackup retrieve backed up config
+   * @return config persisted int the database
+   */
+  static Expected<std::map<std::string, std::string>,
+                  Config::RestoreConfigError>
+  restoreConfigBackup();
 
   /**
    * @brief Update the internal config data.
@@ -243,7 +254,7 @@ class Config : private boost::noncopyable {
   Status refresh();
 
   /// Update the refresh rate.
-  void setRefresh(size_t refresh, size_t mod = 0);
+  void setRefresh(size_t refresh_sec);
 
   /// Inspect the refresh rate.
   size_t getRefresh() const;
@@ -354,6 +365,8 @@ class Config : private boost::noncopyable {
   friend class FileEventsTableTests;
   friend class DecoratorsConfigParserPluginTests;
   friend class SchedulerTests;
+  FRIEND_TEST(ConfigTests, test_config_backup);
+  FRIEND_TEST(ConfigTests, test_config_backup_integrate);
   FRIEND_TEST(ConfigTests, test_config_refresh);
   FRIEND_TEST(ConfigTests, test_get_scheduled_queries);
   FRIEND_TEST(ConfigTests, test_nonblacklist_query);
@@ -362,6 +375,7 @@ class Config : private boost::noncopyable {
   FRIEND_TEST(ViewsConfigParserPluginTests, test_swap_view);
   FRIEND_TEST(ViewsConfigParserPluginTests, test_update_view);
   FRIEND_TEST(OptionsConfigParserPluginTests, test_unknown_option);
+  FRIEND_TEST(OptionsConfigParserPluginTests, test_json_option);
   FRIEND_TEST(EventsConfigParserPluginTests, test_get_event);
   FRIEND_TEST(PacksTests, test_discovery_cache);
   FRIEND_TEST(PacksTests, test_multi_pack);

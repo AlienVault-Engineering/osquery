@@ -10,29 +10,20 @@
 
 #include <iomanip>
 #include <locale>
+#include <unordered_map>
 
-#include <boost/algorithm/string.hpp>
-#include <boost/archive/iterators/base64_from_binary.hpp>
-#include <boost/archive/iterators/binary_from_base64.hpp>
-#include <boost/archive/iterators/transform_width.hpp>
-#include <boost/uuid/sha1.hpp>
+#include <boost/io/detail/quoted_manip.hpp>
 
 #include <osquery/logger.h>
 
 #include "osquery/core/conversions.h"
 #include "osquery/core/json.h"
 
-namespace bai = boost::archive::iterators;
 namespace rj = rapidjson;
 
 namespace osquery {
 
-typedef bai::binary_from_base64<const char*> base64_str;
-typedef bai::transform_width<base64_str, 8, 6> base64_dec;
-typedef bai::transform_width<std::string::const_iterator, 6, 8> base64_enc;
-typedef bai::base64_from_binary<base64_enc> it_base64;
-
-JSON::JSON(decltype(rj::kObjectType) type) : type_(type) {
+JSON::JSON(rj::Type type) : type_(type) {
   if (type_ == rj::kObjectType) {
     doc_.SetObject();
   } else {
@@ -289,12 +280,8 @@ const rj::Document& JSON::doc() const {
 }
 
 size_t JSON::valueToSize(const rj::Value& value) {
-  unsigned long long i = 0;
   if (value.IsString()) {
-    if (!safeStrtoull(value.GetString(), 10, i)) {
-      return 0_sz;
-    }
-    return static_cast<size_t>(i);
+    return tryTo<std::size_t>(std::string{value.GetString()}).takeOr(0_sz);
   } else if (value.IsNumber()) {
     return static_cast<size_t>(value.GetUint64());
   }
@@ -313,41 +300,6 @@ bool JSON::valueToBool(const rj::Value& value) {
     return (value.GetInt() != 0);
   }
   return false;
-}
-
-std::string base64Decode(std::string encoded) {
-  boost::erase_all(encoded, "\r\n");
-  boost::erase_all(encoded, "\n");
-  boost::trim_right_if(encoded, boost::is_any_of("="));
-
-  if (encoded.empty()) {
-    return encoded;
-  }
-
-  try {
-    return std::string(base64_dec(encoded.data()),
-                       base64_dec(encoded.data() + encoded.size()));
-  } catch (const boost::archive::iterators::dataflow_exception& e) {
-    LOG(INFO) << "Could not base64 decode string: " << e.what();
-    return "";
-  }
-}
-
-std::string base64Encode(const std::string& unencoded) {
-  if (unencoded.empty()) {
-    return unencoded;
-  }
-
-  size_t writePaddChars = (3U - unencoded.length() % 3U) % 3U;
-  try {
-    auto encoded =
-        std::string(it_base64(unencoded.begin()), it_base64(unencoded.end()));
-    encoded.append(std::string(writePaddChars, '='));
-    return encoded;
-  } catch (const boost::archive::iterators::dataflow_exception& e) {
-    LOG(INFO) << "Could not base64 decode string: " << e.what();
-    return "";
-  }
 }
 
 bool isPrintable(const std::string& check) {
@@ -391,38 +343,50 @@ std::vector<std::string> split(const std::string& s,
   }
   // Join the optional accumulator.
   if (accumulator.size() > 0) {
-    elems.push_back(join(accumulator, delims));
+    elems.push_back(boost::algorithm::join(accumulator, delims));
   }
   return elems;
-}
-
-std::string join(const std::vector<std::string>& s, const std::string& tok) {
-  return boost::algorithm::join(s, tok);
-}
-
-std::string join(const std::set<std::string>& s, const std::string& tok) {
-  std::vector<std::string> toJoin;
-  toJoin.insert(toJoin.end(), s.begin(), s.end());
-  return boost::algorithm::join(toJoin, tok);
-}
-
-std::string getBufferSHA1(const char* buffer, size_t size) {
-  // SHA1 produces 160-bit digests, so allocate (5 * 32) bits.
-  uint32_t digest[5] = {0};
-  boost::uuids::detail::sha1 sha1;
-  sha1.process_bytes(buffer, size);
-  sha1.get_digest(digest);
-
-  // Convert digest to desired hex string representation.
-  std::stringstream result;
-  result << std::hex << std::setfill('0');
-  for (size_t i = 0; i < 5; ++i) {
-    result << std::setw(sizeof(uint32_t) * 2) << digest[i];
-  }
-  return result.str();
 }
 
 size_t operator"" _sz(unsigned long long int x) {
   return x;
 }
+
+namespace impl {
+
+Expected<bool, ConversionError> stringToBool(std::string from) {
+  static const auto table = std::unordered_map<std::string, bool>{
+      {"1", true},
+      {"0", false},
+      {"y", true},
+      {"yes", true},
+      {"n", false},
+      {"no", false},
+      {"t", true},
+      {"true", true},
+      {"f", false},
+      {"false", false},
+      {"ok", true},
+      {"disable", false},
+      {"enable", true},
+  };
+  using CharType = std::string::value_type;
+  // Classic locale could be used here because all available string
+  // representations of boolean have ascii encoding. It must be a bit faster.
+  static const auto& ctype =
+      std::use_facet<std::ctype<CharType>>(std::locale::classic());
+  for (auto& ch : from) {
+    ch = ctype.tolower(ch);
+  }
+  const auto it = table.find(from);
+  if (it == table.end()) {
+    return createError(ConversionError::InvalidArgument,
+                       "Wrong string representation of boolean ")
+           << boost::io::quoted(from);
+  }
+  return it->second;
 }
+
+} // namespace impl
+
+} // namespace osquery

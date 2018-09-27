@@ -17,6 +17,9 @@
 #include <osquery/plugin.h>
 
 namespace osquery {
+// A list of key/str pairs; used for write batching with setDatabaseBatch
+using DatabaseStringValueList =
+    std::vector<std::pair<std::string, std::string>>;
 
 class Status;
 /**
@@ -50,8 +53,11 @@ extern const std::string kEvents;
 /// The "domain" where the results of carve queries are stored.
 extern const std::string kCarves;
 
+/// The key for the DB version
+extern const std::string kDbVersionKey;
+
 /// The running version of our database schema
-extern const std::string kDatabaseResultsVersion;
+const int kDbCurrentVersion = 2;
 
 /**
  * @brief The "domain" where buffered log results are stored.
@@ -116,6 +122,9 @@ class DatabasePlugin : public Plugin {
   virtual Status put(const std::string& domain,
                      const std::string& key,
                      int value) = 0;
+
+  virtual Status putBatch(const std::string& domain,
+                          const DatabaseStringValueList& data) = 0;
 
   virtual void dumpDatabase() const = 0;
 
@@ -244,6 +253,9 @@ Status setDatabaseValue(const std::string& domain,
                         const std::string& key,
                         int value);
 
+Status setDatabaseBatch(const std::string& domain,
+                        const DatabaseStringValueList& data);
+
 /// Remove a domain/key identified value from backing-store.
 Status deleteDatabaseValue(const std::string& domain, const std::string& key);
 
@@ -281,5 +293,5 @@ Status ptreeToRapidJSON(const std::string& in, std::string& out);
  *
  * @return Success status of upgrading the database
  */
-Status upgradeDatabase();
+Status upgradeDatabase(int to_version = kDbCurrentVersion);
 } // namespace osquery

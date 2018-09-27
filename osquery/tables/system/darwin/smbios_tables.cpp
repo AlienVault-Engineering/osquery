@@ -15,6 +15,7 @@
 #include <IOKit/IOKitLib.h>
 
 #include <boost/algorithm/string.hpp>
+#include <boost/lexical_cast.hpp>
 
 #include <osquery/tables.h>
 
@@ -199,6 +200,25 @@ QueryData genMemoryDeviceMappedAddresses(QueryContext& context) {
                            uint8_t* textAddrs,
                            size_t size) {
     genSMBIOSMemoryDeviceMappedAddresses(index, hdr, address, size, results);
+  });
+
+  return results;
+}
+
+QueryData genOEMStrings(QueryContext& context) {
+  QueryData results;
+
+  DarwinSMBIOSParser parser;
+  if (!parser.discover()) {
+    return results;
+  }
+
+  parser.tables([&results](size_t index,
+                           const SMBStructHeader* hdr,
+                           uint8_t* address,
+                           uint8_t* textAddrs,
+                           size_t size) {
+    genSMBIOSOEMStrings(hdr, address, textAddrs, size, results);
   });
 
   return results;

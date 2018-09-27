@@ -8,13 +8,20 @@
  *  You may select, at your option, one of the above-listed licenses.
  */
 
+#include <algorithm>
 #include <ctime>
+
+#include <boost/format.hpp>
+#include <boost/io/detail/quoted_manip.hpp>
 
 #include <osquery/config.h>
 #include <osquery/core.h>
 #include <osquery/database.h>
 #include <osquery/flags.h>
+#include <osquery/killswitch.h>
 #include <osquery/logger.h>
+#include <osquery/numeric_monitoring.h>
+#include <osquery/profiler/profiler.h>
 #include <osquery/query.h>
 #include <osquery/system.h>
 
@@ -88,7 +95,7 @@ SQLInternal monitor(const std::string& name, const ScheduledQuery& query) {
   return sql;
 }
 
-inline void launchQuery(const std::string& name, const ScheduledQuery& query) {
+Status launchQuery(const std::string& name, const ScheduledQuery& query) {
   // Execute the scheduled query and create a named query object.
   LOG(INFO) << "Executing scheduled query " << name << ": " << query.query;
   runDecorators(DECORATE_ALWAYS);
@@ -97,7 +104,7 @@ inline void launchQuery(const std::string& name, const ScheduledQuery& query) {
   if (!sql.ok()) {
     LOG(ERROR) << "Error executing scheduled query " << name << ": "
                << sql.getMessageString();
-    return;
+    return Status::failure("Error executing scheduled query");
   }
 
   // Fill in a host identifier fields based on configuration or availability.
@@ -118,7 +125,7 @@ inline void launchQuery(const std::string& name, const ScheduledQuery& query) {
     // This is a snapshot query, emit results with a differential or state.
     item.snapshot_results = std::move(sql.rows());
     logSnapshotQuery(item);
-    return;
+    return Status::success();
   }
 
   // Create a database-backed set of query results.
@@ -135,8 +142,8 @@ inline void launchQuery(const std::string& name, const ScheduledQuery& query) {
     status = dbQuery.addNewResults(
         std::move(sql.rows()), item.epoch, item.counter, diff_results);
     if (!status.ok()) {
-      std::string line =
-          "Error adding new results to database: " + status.what();
+      std::string line = "Error adding new results to database for query " +
+                         name + ": " + status.what();
       LOG(ERROR) << line;
 
       // If the database is not available then the daemon cannot continue.
@@ -152,7 +159,7 @@ inline void launchQuery(const std::string& name, const ScheduledQuery& query) {
 
   if (diff_results.added.empty() && diff_results.removed.empty()) {
     // No diff results or events to emit.
-    return;
+    return status;
   }
 
   VLOG(1) << "Found results for query: " << name;
@@ -165,6 +172,7 @@ inline void launchQuery(const std::string& name, const ScheduledQuery& query) {
     LOG(ERROR) << error;
     Initializer::requestShutdown(EXIT_CATASTROPHIC, error);
   }
+  return status;
 }
 
 void SchedulerRunner::start() {
@@ -177,7 +185,12 @@ void SchedulerRunner::start() {
           if (query.splayed_interval > 0 && i % query.splayed_interval == 0) {
             TablePlugin::kCacheInterval = query.splayed_interval;
             TablePlugin::kCacheStep = i;
-            launchQuery(name, query);
+            {
+              CodeProfiler codeProfiler(
+                  (boost::format("scheduler.executing_query.%s") % name).str());
+              const auto status = launchQuery(name, query);
+              codeProfiler.appendName(status.ok() ? ".success" : ".failure");
+            };
           }
         }));
     // Configuration decorators run on 60 second intervals only.
@@ -199,7 +212,8 @@ void SchedulerRunner::start() {
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - start_time_point);
     if (loop_step_duration + time_drift_ < interval_) {
-      pauseMilli(interval_ - loop_step_duration - time_drift_);
+      pause(std::chrono::milliseconds(interval_ - loop_step_duration -
+                                      time_drift_));
       time_drift_ = std::chrono::milliseconds::zero();
     } else {
       time_drift_ += loop_step_duration - interval_;

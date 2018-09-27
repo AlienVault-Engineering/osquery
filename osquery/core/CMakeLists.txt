@@ -6,19 +6,35 @@
 #  in the COPYING file in the root directory of this source tree).
 #  You may select, at your option, one of the above-listed licenses.
 
-ADD_OSQUERY_LIBRARY(TRUE osquery_core "")
-
-target_sources(osquery_core
+target_compile_definitions(libosquery
   PRIVATE
+    "-DROCKSDB_LITE=1"
+)
+
+target_sources(libosquery
+  PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/base64.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/base64.h"
     "${CMAKE_CURRENT_LIST_DIR}/conversions.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/conversions.h"
+    "${CMAKE_CURRENT_LIST_DIR}/database/database.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/database/database.h"
+    "${CMAKE_CURRENT_LIST_DIR}/database/in_memory_database.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/database/in_memory_database.h"
+    "${CMAKE_CURRENT_LIST_DIR}/database/rocksdb_database.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/database/rocksdb_database.h"
+    "${CMAKE_CURRENT_LIST_DIR}/database/rocksdb_migration.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/database/rocksdb_migration.h"
     "${CMAKE_CURRENT_LIST_DIR}/flags.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/map_take.h"
     "${CMAKE_CURRENT_LIST_DIR}/hashing.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/hashing.h"
     "${CMAKE_CURRENT_LIST_DIR}/init.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/json.h"
     "${CMAKE_CURRENT_LIST_DIR}/process.h"
     "${CMAKE_CURRENT_LIST_DIR}/query.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/scope_guard.h"
+    "${CMAKE_CURRENT_LIST_DIR}/status.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/system.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/tables.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/utils.h"
@@ -26,10 +42,8 @@ target_sources(osquery_core
     "${CMAKE_CURRENT_LIST_DIR}/watcher.h"
 )
 
-ADD_OSQUERY_LIBRARY(TRUE osquery_core_platform "")
-
-if (APPLE)
-  darwin_target_sources(osquery_core_platform
+if(APPLE)
+  target_sources(libosquery
     PRIVATE
       "${CMAKE_CURRENT_LIST_DIR}/darwin/conversions.cpp"
       "${CMAKE_CURRENT_LIST_DIR}/darwin/iokit.cpp"
@@ -37,8 +51,16 @@ if (APPLE)
   )
 endif()
 
-if (UNIX)
-  target_sources(osquery_core_platform
+if(LINUX)
+  target_sources(libosquery
+    PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/linux/cpu.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/linux/cpu.h"
+  )
+endif()
+
+if(POSIX)
+  target_sources(libosquery
     PRIVATE
       "${CMAKE_CURRENT_LIST_DIR}/posix/initializer.cpp"
       "${CMAKE_CURRENT_LIST_DIR}/posix/process_ops.cpp"
@@ -47,24 +69,32 @@ if (UNIX)
   )
 endif()
 
-if (WINDOWS)
-  target_sources(osquery_core_platform
+if(WINDOWS)
+  target_sources(libosquery
     PRIVATE
       "${CMAKE_CURRENT_LIST_DIR}/windows/initializer.cpp"
       "${CMAKE_CURRENT_LIST_DIR}/windows/process_ops.cpp"
       "${CMAKE_CURRENT_LIST_DIR}/windows/process_ops.h"
       "${CMAKE_CURRENT_LIST_DIR}/windows/process.cpp"
+      "${CMAKE_CURRENT_LIST_DIR}/windows/handle.cpp"
       "${CMAKE_CURRENT_LIST_DIR}/windows/utils.cpp"
       "${CMAKE_CURRENT_LIST_DIR}/windows/wmi.cpp"
       "${CMAKE_CURRENT_LIST_DIR}/windows/wmi.h"
   )
 endif()
 
-ADD_OSQUERY_TEST(TRUE
+ADD_OSQUERY_TEST_CORE(
+  "${CMAKE_CURRENT_LIST_DIR}/database/tests/in_memory_database_tests.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/database/tests/rocksdb_database_tests.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/tests/base64_tests.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/tests/conversions_tests.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/tests/error_tests.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/tests/exptected_tests.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/tests/flags_tests.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/tests/map_take_tests.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/tests/process_tests.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/tests/query_tests.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/tests/scope_guard_tests.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/tests/status_tests.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/tests/system_test.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/tests/tables_tests.cpp"
@@ -72,8 +102,14 @@ ADD_OSQUERY_TEST(TRUE
   "${CMAKE_CURRENT_LIST_DIR}/tests/watcher_tests.cpp"
 )
 
-if (UNIX) 
-  ADD_OSQUERY_TEST(TRUE
+if(POSIX) 
+  ADD_OSQUERY_TEST_CORE(
     "${CMAKE_CURRENT_LIST_DIR}/tests/posix/permissions_tests.cpp"
   )   
+endif()
+
+if(LINUX)
+  ADD_OSQUERY_TEST_CORE(
+    "${CMAKE_CURRENT_LIST_DIR}/linux/tests/cpu_test.cpp"
+  )
 endif()

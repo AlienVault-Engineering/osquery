@@ -22,8 +22,8 @@ QueryData genCpuInfo(QueryContext& context) {
   Row r;
   QueryData results;
 
-  WmiRequest wmiSystemReq("SELECT * FROM Win32_Processor");
-  std::vector<WmiResultItem>& wmiResults = wmiSystemReq.results();
+  const WmiRequest wmiSystemReq("SELECT * FROM Win32_Processor");
+  const std::vector<WmiResultItem>& wmiResults = wmiSystemReq.results();
   if (wmiResults.empty()) {
     LOG(WARNING) << "Error retreiving information from WMI.";
     return results;
@@ -31,6 +31,7 @@ QueryData genCpuInfo(QueryContext& context) {
   for (const auto& data : wmiResults) {
     long number = 0;
     data.GetString("DeviceID", r["device_id"]);
+    data.GetString("SocketDesignation", r["socket_designation"]);
     data.GetString("Name", r["model"]);
     data.GetString("Manufacturer", r["manufacturer"]);
     (data.GetLong("ProcessorType", number))

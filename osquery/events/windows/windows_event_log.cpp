@@ -63,7 +63,7 @@ void WindowsEventLogEventPublisher::configure() {
 }
 
 Status WindowsEventLogEventPublisher::run() {
-  pause();
+  pause(std::chrono::milliseconds(100));
   return Status(0, "OK");
 }
 
