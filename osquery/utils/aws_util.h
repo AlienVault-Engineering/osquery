@@ -182,6 +182,7 @@ Status getAWSRegion(std::string& region, bool sts = false);
  */
 Status getAWSEndpointOverride(std::string& endpoint_override);
 
+/*
  * @brief Set HTTP/HTTPS proxy information on the AWS ClientConfiguration
  * using relevant flags for scheme, host, port, username, and password
  *
