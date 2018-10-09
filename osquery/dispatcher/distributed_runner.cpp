@@ -43,8 +43,11 @@ void DistributedRunner::start() {
         kPersistentSettings, "distributed_accelerate_checkins_expire", str_acu);
     auto const accelerate_checkins_expire_exp =
         tryTo<unsigned long int>(str_acu, 10);
-    if (!database.ok() || accelerate_checkins_expire_exp.isError() ||
-        getUnixTime() > accelerate_checkins_expire_exp.get()) {
+    unsigned long int accelerate_checkins_expire_long = 0;
+    if (!accelerate_checkins_expire_exp.isError()) {
+      accelerate_checkins_expire_long = accelerate_checkins_expire_exp.get();
+    }
+    if (!database.ok() || getUnixTime() > accelerate_checkins_expire_long) {
       pause(std::chrono::seconds(FLAGS_distributed_interval));
     } else {
       pause(std::chrono::seconds(kDistributedAccelerationInterval));

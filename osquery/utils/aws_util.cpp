@@ -109,7 +109,6 @@ OsqueryHttpClientFactory::CreateHttpRequest(
     const Aws::String& uri,
     Aws::Http::HttpMethod method,
     const Aws::IOStreamFactory& streamFactory) const {
-
   return CreateHttpRequest(Aws::Http::URI(uri), method, streamFactory);
 }
 
@@ -223,6 +222,25 @@ OsquerySTSAWSCredentialsProvider::GetAWSCredentials() {
   // Grab system time in seconds-since-epoch for token expiration checks.
   size_t current_time = osquery::getUnixTime();
 
+  if (FLAGS_aws_session_token.length() > 0) {
+    token_expire_time_ = current_time + 100;
+
+    // If we have not setup an AWS client yet, we must do so here.
+    if (access_key_id_.empty()) {
+      initAwsSdk();
+
+      access_key_id_ = FLAGS_aws_access_key_id;
+      secret_access_key_ = FLAGS_aws_secret_access_key;
+      session_token_ = FLAGS_aws_session_token;
+
+      Status s = makeAWSClient<Aws::STS::STSClient>(client_, "", false);
+      if (!s.ok()) {
+        LOG(WARNING) << "Error creating AWS client: " << s.what();
+        return Aws::Auth::AWSCredentials("", "");
+      }
+    }
+  }
+
   // Pull new STS credentials if not cached from a previous run.
   if (token_expire_time_ <= current_time) {
     // Create and setup a STS client to pull our temporary credentials.
@@ -267,7 +285,8 @@ OsqueryAWSCredentialsProviderChain::OsqueryAWSCredentialsProviderChain(bool sts)
     : AWSCredentialsProviderChain() {
   // The order of the AddProvider calls determines the order in which the
   // provider chain attempts to retrieve credentials.
-  if (sts && !FLAGS_aws_sts_arn_role.empty()) {
+  if (sts &&
+      (!FLAGS_aws_session_token.empty() || !FLAGS_aws_sts_arn_role.empty())) {
     AddProvider(std::make_shared<OsquerySTSAWSCredentialsProvider>());
   }
 
@@ -464,12 +483,10 @@ Status getAWSRegion(std::string& region, bool sts) {
   return Status(0);
 }
 
-
 Status getAWSEndpointOverride(std::string& endpoint_override) {
   endpoint_override = FLAGS_aws_endpoint_override;
   return Status(0);
 }
-
 
 Status appendLogTypeToJson(const std::string& log_type, std::string& log) {
   if (log_type.empty()) {
@@ -518,4 +535,4 @@ void setAWSProxy(Aws::Client::ClientConfiguration& config) {
     config.proxyPassword = FLAGS_aws_proxy_password;
   }
 }
-}
+} // namespace osquery

@@ -71,6 +71,15 @@ class OsqueryHttpClient : public Aws::Http::HttpClient {
       Aws::Utils::RateLimits::RateLimiterInterface* readLimiter = nullptr,
       Aws::Utils::RateLimits::RateLimiterInterface* writeLimiter =
           nullptr) const override;
+
+  std::shared_ptr<Aws::Http::HttpResponse> MakeRequest(
+      const std::shared_ptr<Aws::Http::HttpRequest>& request,
+      Aws::Utils::RateLimits::RateLimiterInterface* readLimiter,
+      Aws::Utils::RateLimits::RateLimiterInterface* writeLimiter)
+      const override {
+    VLOG(1) << "Using shared_ptr for request";
+    return MakeRequest(*request, readLimiter, writeLimiter);
+  }
 };
 
 /**
@@ -176,7 +185,8 @@ Status getAWSRegion(std::string& region, bool sts = false);
 /**
  * @brief Retrieve the endpoint_override from the aws_endpoint_override flag
  *
- * @param endpoint_override The output string containing the endpoint_override value
+ * @param endpoint_override The output string containing the endpoint_override
+ * value
  *
  * @return 0 if successful
  */
@@ -212,7 +222,6 @@ Status makeAWSClient(std::shared_ptr<Client>& client,
                      const std::string& region = "",
                      bool sts = true,
                      bool override = false) {
-
   // Set up client
   Aws::Client::ClientConfiguration client_config;
   if (region.empty()) {
@@ -230,7 +239,7 @@ Status makeAWSClient(std::shared_ptr<Client>& client,
     Status s = getAWSEndpointOverride(endpoint_override);
     VLOG(1) << "AWS endpoint_override flag" << endpoint_override;
     if (!endpoint_override.empty()) {
-       client_config.endpointOverride = endpoint_override;
+      client_config.endpointOverride = endpoint_override;
     }
     VLOG(1) << "AWS endpointOverride=" << client_config.endpointOverride;
   }
@@ -254,4 +263,4 @@ Status makeAWSClient(std::shared_ptr<Client>& client,
  * @return 0 if successful, 1 if there were issues
  */
 Status appendLogTypeToJson(const std::string& log_type, std::string& log);
-}
+} // namespace osquery
