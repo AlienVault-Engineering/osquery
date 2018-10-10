@@ -17,6 +17,10 @@
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 
+#ifdef WIN32
+#define AWS_DISABLE_DEPRECATION
+#endif
+
 #include <aws/core/Aws.h>
 #include <aws/core/Region.h>
 #include <aws/core/client/AWSClient.h>

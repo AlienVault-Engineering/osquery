@@ -34,7 +34,10 @@ elseif(WINDOWS)
   ADD_OSQUERY_LIBRARY(FALSE osquery_events_windows 
     "${CMAKE_CURRENT_LIST_DIR}/windows/windows_event_log.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/windows/windows_event_log.h"
-  )
+    "${CMAKE_CURRENT_LIST_DIR}/windows/read_directory_changes.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/windows/read_directory_changes.h"
+    "${CMAKE_CURRENT_LIST_DIR}/windows/ReadDirectoryChangesPrivate.cpp"
+)
 else()
   ADD_OSQUERY_LINK_ADDITIONAL("udev")
   ADD_OSQUERY_LINK_ADDITIONAL("audit")

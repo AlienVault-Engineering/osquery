@@ -13,6 +13,10 @@
 #include <memory>
 #include <vector>
 
+#ifdef WIN32
+#define AWS_DISABLE_DEPRECATION
+#endif
+
 #include <aws/kinesis/KinesisClient.h>
 #include <aws/kinesis/model/PutRecordsRequestEntry.h>
 #include <gtest/gtest.h>

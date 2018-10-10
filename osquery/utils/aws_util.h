@@ -10,6 +10,10 @@
 
 #pragma once
 
+#ifdef WIN32
+#define AWS_DISABLE_DEPRECATION
+#endif
+
 #include <memory>
 
 #include <aws/core/Region.h>

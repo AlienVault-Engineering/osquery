@@ -13,6 +13,10 @@
 #include <iterator>
 #include <thread>
 
+#ifdef WIN32
+#define AWS_DISABLE_DEPRECATION
+#endif
+
 #include <aws/core/client/AWSError.h>
 #include <aws/core/utils/Outcome.h>
 #include <aws/kinesis/model/PutRecordsRequest.h>

@@ -12,6 +12,10 @@
 
 #include <boost/algorithm/string/join.hpp>
 
+#ifdef WIN32
+#define AWS_DISABLE_DEPRECATION
+#endif
+
 #include <aws/core/client/AWSError.h>
 #include <aws/core/utils/Outcome.h>
 #include <aws/firehose/model/PutRecordBatchRequest.h>
