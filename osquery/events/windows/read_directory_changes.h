@@ -135,10 +135,10 @@ class RDChangesEventPublisher
   rdcp::CReadChangesServer* server{NULL};
 
   /// The CReadChangesServer executes in a dedicated thread.
-  HANDLE thread;
+  HANDLE thread {NULL};
 
   /// Thread identifier.
-  unsigned int thread_id;
+  unsigned int thread_id {0 };
 
   /// Thread-safe queue to communicate with CReadChangesServer.
   rdcp::CThreadSafeQueue<Message> queue;
