@@ -180,9 +180,27 @@ Status RDChangesEventPublisher::run() {
   return Status(0, "OK");
 }
 
+/*
+ * This is fired once for each configured path to monitor.
+ * This function should filter out matching paths, so events are only
+ * sent to matching subscription contexts.
+ */
 bool RDChangesEventPublisher::shouldFire(const RDChangesSubscriptionContextRef& sc,
                                          const RDChangesEventContextRef& ec) const {
-  // exclude paths should be applied at last
+  //VLOG(1) << "shouldFire sc.category:" << sc->category << " EV.path:" << ec->path << (sc->recursive ? " RECURS" : "") << " sc.path:" << sc->path;
+
+  if (sc->recursive && !sc->recursive_match) {
+    auto found = ec->path.find(sc->path);
+    if (found != 0) {
+      return false;
+    }
+  } else {
+    if (false == PathMatchSpec(ec->path.c_str(), (sc->path + "*").c_str())) {
+      return false;
+    }
+  }
+
+  // TODO: what about recursive exclude paths?  // exclude paths should be applied at last
   auto path = ec->path.substr(0, ec->path.rfind('\\'));
   // Need to have two finds,
   // what if somebody excluded an individual file inside a directory
