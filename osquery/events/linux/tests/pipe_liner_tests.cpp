@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "pipe_liner.h"
+#include "../pipe_liner.h"
 
 class PipeLinerTest : public ::testing::Test {
 protected:
