@@ -11,11 +11,11 @@
 #include <fcntl.h>
 #include <grp.h>
 #include <sys/file.h>
+#include <sys/select.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
-#include <sys/select.h>
 
 #include <istream>
 #include <string>
@@ -62,6 +62,11 @@ Status SyslogEventPublisher::setUp() {
   if (!FLAGS_enable_syslog) {
     return Status(1, "Publisher disabled via configuration");
   }
+
+  // The pipe file should exist as part of install / config.  We create
+  // pipe file here if it doesn't exist, but won't receive events until:
+  //  - the /etc/rsyslog.d/90-osquery.conf file is in place
+  //  - the syslog service is restarted
 
   Status s;
   if (!pathExists(FLAGS_syslog_pipe_path)) {
@@ -151,13 +156,13 @@ void SyslogEventPublisher::onLine(std::string line) {
   auto ec = createEventContext();
   Status status = populateEventContext(line, ec);
   if (status.ok()) {
-      fire(ec);
-      if (errorCount_ > 0) {
-        --errorCount_;
-      }
+    fire(ec);
+    if (errorCount_ > 0) {
+      --errorCount_;
+    }
   } else {
-      LOG(ERROR) << status.getMessage() << " in line: " << line;
-      ++errorCount_;
+    LOG(ERROR) << status.getMessage() << " in line: " << line;
+    ++errorCount_;
   }
 }
 
@@ -206,4 +211,4 @@ bool SyslogEventPublisher::shouldFire(const SyslogSubscriptionContextRef& sc,
                                       const SyslogEventContextRef& ec) const {
   return true;
 }
-}
+} // namespace osquery

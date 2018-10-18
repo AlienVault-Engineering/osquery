@@ -71,7 +71,8 @@ class SyslogEventPublisher
   Status run() override;
 
  public:
-  SyslogEventPublisher() : EventPublisher(), pipeReader_(this), errorCount_(0), lockFd_(-1) {}
+  SyslogEventPublisher()
+      : EventPublisher(), pipeReader_(this), errorCount_(0), lockFd_(-1) {}
 
  public:
   virtual void onLine(std::string line) override;
@@ -209,4 +210,4 @@ class RsyslogCsvSeparator {
  private:
   bool last_;
 };
-}
+} // namespace osquery
