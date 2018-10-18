@@ -90,8 +90,6 @@ Status SyslogEventPublisher::setUp() {
   // don't want to block here and will instead block waiting for a read in the
   // run() method
   if (pipeReader_.open(FLAGS_syslog_pipe_path)) {
-  //readStream_.open(FLAGS_syslog_pipe_path, std::ifstream::in | std::ifstream::out);
-  //if (!readStream_.good()) {
     return Status(1,
                   "Error opening pipe for reading: " + FLAGS_syslog_pipe_path);
   }
@@ -160,14 +158,14 @@ void SyslogEventPublisher::onLine(std::string line) {
   } else {
       LOG(ERROR) << status.getMessage() << " in line: " << line;
       ++errorCount_;
-      if (errorCount_ >= kErrorThreshold) {
-        // TODO: return Status(1, "Too many errors in syslog parsing.");
-      }
   }
 }
 
 Status SyslogEventPublisher::run() {
   pipeReader_.update();
+  if (errorCount_ >= kErrorThreshold) {
+    return Status(1, "Too many errors in syslog parsing.");
+  }
   return Status(0, "OK");
 }
 

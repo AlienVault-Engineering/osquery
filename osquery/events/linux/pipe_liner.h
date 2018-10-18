@@ -107,8 +107,10 @@ struct PipeLiner {
     // read lines in buffer
 
     while(remaining > 0) {
-      char *pos = strnstr(ptr, "\n", remaining);
-      if (NULL == pos) {
+      auto end = ptr + remaining;
+      auto pos = ptr;
+      while (pos < end && *pos != '\n') pos++;
+      if (pos == end) {
         // no end of line
         _stash((char *)ptr, remaining);
         return;
@@ -149,32 +151,6 @@ struct PipeLiner {
 
     buf_.resize(len);
     memcpy(buf_.data(), tmp.data(), len);
-  }
-
-  /*
-   * Find the first occurrence of find in s, where the search is limited to the
-   * first slen characters of s.
-   * http://src.gnu-darwin.org/src/lib/libc/string/strnstr.c.html
-   */
-  char *
-  strnstr(const char *s, const char *find, size_t slen)
-  {
-  	char c, sc;
-  	size_t len;
-
-  	if ((c = *find++) != '\0') {
-  		len = strlen(find);
-  		do {
-  			do {
-  				if (slen-- < 1 || (sc = *s++) == '\0')
-  					return (NULL);
-  			} while (sc != c);
-  			if (len > slen)
-  				return (NULL);
-  		} while (strncmp(s, find, len) != 0);
-  		s--;
-  	}
-  	return ((char *)s);
   }
 
   uint32_t chunksize_;

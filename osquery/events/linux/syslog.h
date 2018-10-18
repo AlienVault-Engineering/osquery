@@ -121,7 +121,6 @@ class SyslogEventPublisher
   /**
    * @brief Input stream for reading from the pipe.
    */
-  //std::fstream readStream_;
   PipeLiner pipeReader_;
 
   /**
