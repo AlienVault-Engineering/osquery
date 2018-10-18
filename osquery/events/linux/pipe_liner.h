@@ -134,8 +134,9 @@ struct PipeLiner {
 
       auto end = ptr + remaining;
       auto pos = ptr;
-      while (pos < end && *pos != '\n')
+      while (pos < end && *pos != '\n') {
         pos++;
+      }
 
       if (pos == end) {
         // no end of line
