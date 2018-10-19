@@ -20,125 +20,20 @@
 namespace osquery {
 
 /**
- * @brief Small struct containing the query and ID information for a
- * distributed query
- */
-struct DistributedQueryRequest {
- public:
-  explicit DistributedQueryRequest() {}
-
-  std::string query;
-  std::string id;
-};
-
-/**
- * @brief Serialize a DistributedQueryRequest into a property tree
- *
- * @param r the DistributedQueryRequest to serialize
- * @param doc the input JSON managed document
- * @param obj the output rapidjson document [object]
- *
- * @return Status indicating the success or failure of the operation
- */
-Status serializeDistributedQueryRequest(const DistributedQueryRequest& r,
-                                        JSON& doc,
-                                        rapidjson::Value& obj);
-
-/**
- * @brief Serialize a DistributedQueryRequest object into a JSON string
- *
- * @param r the DistributedQueryRequest to serialize
- * @param json the output JSON string
- *
- * @return Status indicating the success or failure of the operation
- */
-Status serializeDistributedQueryRequestJSON(const DistributedQueryRequest& r,
-                                            std::string& json);
-
-/**
- * @brief Deserialize a DistributedQueryRequest object from a property tree
- *
- * @param obj the input rapidjson value [object]
- * @param r the output DistributedQueryRequest structure
- *
- * @return Status indicating the success or failure of the operation
- */
-Status deserializeDistributedQueryRequest(const rapidjson::Value& obj,
-                                          DistributedQueryRequest& r);
-
-/**
- * @brief Deserialize a DistributedQueryRequest object from a JSON string
- *
- * @param json the input JSON string
- * @param r the output DistributedQueryRequest structure
- *
- * @return Status indicating the success or failure of the operation
- */
-Status deserializeDistributedQueryRequestJSON(const std::string& json,
-                                              DistributedQueryRequest& r);
-
-/**
- * @brief Small struct containing the results of a distributed query
+ * @brief Small struct containing the state of a distributed query
  */
 struct DistributedQueryResult {
  public:
   DistributedQueryResult() {}
-  DistributedQueryResult(const DistributedQueryRequest& req,
-                         const QueryData& res,
-                         const ColumnNames& cols,
-                         const Status& s)
-      : request(req), results(res), columns(cols), status(s) {}
+  DistributedQueryResult(std::string qid, std::string q)
+    : id(qid), query(q),  results(), columns(), status(-1) {}
 
-  DistributedQueryRequest request;
+  std::string id;
+  std::string query;
   QueryData results;
   ColumnNames columns;
   Status status;
 };
-
-/**
- * @brief Serialize a DistributedQueryResult into a property tree
- *
- * @param r the DistributedQueryResult to serialize
- * @param doc the input JSON managed document
- * @param obj the output rapidjson document [object]
- *
- * @return Status indicating the success or failure of the operation
- */
-Status serializeDistributedQueryResult(const DistributedQueryResult& r,
-                                       JSON& doc,
-                                       rapidjson::Value& obj);
-/**
- * @brief Serialize a DistributedQueryResult object into a JSON string
- *
- * @param r the DistributedQueryResult to serialize
- * @param json the output JSON string
- *
- * @return Status indicating the success or failure of the operation
- */
-Status serializeDistributedQueryResultJSON(const DistributedQueryResult& r,
-                                           std::string& json);
-
-/**
- * @brief Deserialize a DistributedQueryResult object from a property tree
- *
- * @param obj the input rapidjson document [object]
- * @param r the output DistributedQueryResult structure
- *
- * @return Status indicating the success or failure of the operation
- */
-Status deserializeDistributedQueryResult(const rapidjson::Value& obj,
-                                         DistributedQueryResult& r);
-
-/**
- * @brief Deserialize a DistributedQueryResult object from a JSON string
- *
- * @param json the input JSON string
- * @param r the output DistributedQueryResult structure
- *
- * @return Status indicating the success or failure of the operation
- */
-Status deserializeDistributedQueryResultJSON(const std::string& json,
-                                             DistributedQueryResult& r);
 
 class DistributedPlugin : public Plugin {
  public:
@@ -234,6 +129,7 @@ class Distributed {
   Status runQueries();
 
   // Getter for ID of currently executing request
+  // NOTE referenced externally by Carver
   static std::string getCurrentRequestId();
 
  protected:
@@ -253,22 +149,26 @@ class Distributed {
    *
    * @return a DistributedQueryRequest object which needs to be executed
    */
-  DistributedQueryRequest popRequest();
+//  DistributedQueryRequest popRequest();
 
   /**
    * @brief Queue a result to be batch sent to the server
    *
    * @param result is a DistributedQueryResult object to be sent to the server
    */
-  void addResult(const DistributedQueryResult& result);
+//  void addResult(const DistributedQueryResult& result);
 
   /**
    * @brief Flush all of the collected results to the server
    */
   Status flushCompleted();
 
+  Status passesDiscovery(const JSON &doc);
+  Status populateResultState(const JSON &doc, Status discoveryStatus);
+  void reportInterruptedWork();
+
   // Setter for ID of currently executing request
-  static void setCurrentRequestId(const std::string& cReqId);
+//  static void setCurrentRequestId(const std::string& cReqId);
 
   std::vector<DistributedQueryResult> results_;
 

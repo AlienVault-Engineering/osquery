@@ -34,8 +34,6 @@ FLAG(bool,
      true,
      "Disable distributed queries (default true)");
 
-const std::string kDistributedQueryPrefix{"distributed."};
-
 std::string Distributed::currentRequestId_{""};
 
 Status DistributedPlugin::call(const PluginRequest& request,
@@ -66,6 +64,8 @@ Status Distributed::pullUpdates() {
     return Status(1, "Missing distributed plugin: " + distributed_plugin);
   }
 
+  reportInterruptedWork();
+
   PluginResponse response;
   auto status =
       Registry::call("distributed", {{"action", "getQueries"}}, response);
@@ -80,15 +80,18 @@ Status Distributed::pullUpdates() {
   return Status(0, "OK");
 }
 
-size_t Distributed::getPendingQueryCount() {
-  std::vector<std::string> queries;
-  scanDatabaseKeys(kQueries, queries, kDistributedQueryPrefix);
-  return queries.size();
-}
 
-size_t Distributed::getCompletedCount() {
-  return results_.size();
+size_t Distributed::getPendingQueryCount() {
+  int num = 0;
+  for (auto item : results_) {
+    if (item.status.getCode() == -1) { num += 1; }
+  }
+  return num;
 }
+/*
+size_t Distributed::getCompletedCount() {
+  return results_.size() - getPendingQueryCount();
+}*/
 
 Status Distributed::serializeResults(std::string& json) {
   auto doc = JSON::newObject();
@@ -100,43 +103,48 @@ Status Distributed::serializeResults(std::string& json) {
     if (!s.ok()) {
       return s;
     }
-    doc.add(result.request.id, arr, queries_obj);
-    doc.add(result.request.id, result.status.getCode(), statuses_obj);
+    doc.add(result.id, arr, queries_obj);
+    doc.add(result.id, result.status.getCode(), statuses_obj);
   }
 
   doc.add("queries", queries_obj);
   doc.add("statuses", statuses_obj);
   return doc.toString(json);
 }
-
+/*
 void Distributed::addResult(const DistributedQueryResult& result) {
   results_.push_back(result);
-}
+}*/
 
 Status Distributed::runQueries() {
-  while (getPendingQueryCount() > 0) {
-    auto request = popRequest();
-    LOG(INFO) << "Executing distributed query: " << request.id << ": "
-              << request.query;
+  LOG(WARNING) << "Distributed::runQueries()";
 
-    // Keep track of the currently executing request
-    Distributed::setCurrentRequestId(request.id);
+  for (auto &item : results_) {
+    // skip queries marked as done
+    if (item.status.getCode() != -1) { continue; }
 
-    SQL sql(request.query);
+    currentRequestId_ = item.id;
+    setDatabaseValue(kPersistentSettings, "distributed_query_id", item.id);
+    LOG(INFO) << "Executing distributed query: " << item.id << ": "
+              << item.query;
+    SQL sql(item.query);
     if (!sql.getStatus().ok()) {
-      LOG(ERROR) << "Error executing distributed query: " << request.id << ": "
+      LOG(ERROR) << "Error executing distributed query: " << item.id << ": "
                  << sql.getMessageString();
     }
 
-    DistributedQueryResult result(
-        request, sql.rows(), sql.columns(), sql.getStatus());
-    addResult(result);
+    item.results = sql.rows();
+    item.columns = sql.columns();
+    item.status = sql.getStatus();
+
+    currentRequestId_ = "";
+    deleteDatabaseValue(kPersistentSettings, "distributed_query_id");
   }
   return flushCompleted();
 }
 
 Status Distributed::flushCompleted() {
-  if (getCompletedCount() == 0) {
+  if (results_.size() == 0) {
     return Status(0, "OK");
   }
 
@@ -155,10 +163,131 @@ Status Distributed::flushCompleted() {
   s = Registry::call("distributed",
                      {{"action", "writeResults"}, {"results", results}},
                      response);
+
+  // NOTE: If unable to report, results kept in memory until retry
   if (s.ok()) {
     results_.clear();
+    deleteDatabaseValue(kPersistentSettings, "distributed_work");
+    deleteDatabaseValue(kPersistentSettings, "distributed_query_id");
   }
   return s;
+}
+
+Status Distributed::passesDiscovery(const JSON &doc)
+{
+  if (!doc.doc().HasMember("discovery")) {
+    return Status();
+  }
+
+  int numDiscoveryQueries = 0;
+  int numDiscoveryPassed = 0;
+  const auto& queries = doc.doc()["discovery"];
+  assert(queries.IsObject());
+
+  if (queries.IsObject()) {
+    for (const auto& query_entry : queries.GetObject()) {
+      if (!query_entry.name.IsString() || !query_entry.value.IsString()) {
+        return Status(1, "Distributed discovery query is not a string");
+      }
+
+      auto name = std::string(query_entry.name.GetString());
+      auto query = std::string(query_entry.value.GetString());
+      if (query.empty() || name.empty()) {
+        return Status(1, "Distributed discovery query is not a string");
+      }
+
+      numDiscoveryQueries++;
+
+      SQL sql(query);
+      if (!sql.getStatus().ok()) {
+        return Status(1, "Distributed discovery query has an SQL error");
+      }
+      if (sql.rows().size() > 0) {
+        numDiscoveryPassed++;
+      }
+    }
+  }
+
+  // All discovery queries need to return rows to pass discovery
+
+  if (numDiscoveryPassed < numDiscoveryQueries) {
+    return Status(1);
+  }
+
+  return Status();
+}
+
+static inline std::string getStr(const rj::Value& node) {
+  if (node.IsString()) {
+    return std::string(node.GetString());
+  }
+  return "";
+}
+
+/**
+ * Parses the queries portion of distributed_read body and populates
+ * results_ vector.  Each result_ entry will have id, query set, and
+ * the status will be set to -1, indicating that the query has not been
+ * initiated yet.  With the exception being when discoveryStatus is not
+ * success, which indicates queries should not be run, so result_ statuses
+ * are set to 0, meaning success.  Discovery queries are used to check
+ * whether a set of queries are relevant to the target device.
+ */
+Status Distributed::populateResultState(const JSON &doc, Status discoveryStatus)
+{
+  const auto& queries = doc.doc()["queries"];
+
+  for (const auto& query_entry : queries.GetObject()) {
+    auto name = getStr(query_entry.name);
+    auto query = getStr(query_entry.value);
+    if (name.empty() || query.empty()) {
+      return Status(1, "Distributed query is not a string");
+    }
+
+    // add result placeholder
+    DistributedQueryResult result(name, query);
+    if (!discoveryStatus.ok()) {
+      // queries are not relevant to this device, mark as done
+      result.status = Status(0);
+    }
+
+    results_.push_back(result);
+  }
+
+  return Status();
+}
+
+void Distributed::reportInterruptedWork() {
+  std::string work;
+  std::string lastQueryId;
+  getDatabaseValue(kPersistentSettings, "distributed_work", work);
+  getDatabaseValue(kPersistentSettings, "distributed_query_id", lastQueryId);
+
+  if (work.empty() && lastQueryId.empty()) {
+    return;
+  }
+
+  // clear
+  deleteDatabaseValue(kPersistentSettings, "distributed_work");
+  deleteDatabaseValue(kPersistentSettings, "distributed_query_id");
+
+  if (work.empty()) {
+    LOG(WARNING) << "distributed_work not in DB, but distributed_query_id was";
+    return;
+  }
+  auto doc = JSON::newObject();
+  if (!doc.fromString(work) || !doc.doc().IsObject()) {
+    LOG(WARNING) << "ERROR distributed_work in DB was invalid";
+    return;
+  }
+
+  // load last
+  populateResultState(doc, Status());
+  for (auto &item : results_) {
+    item.status = Status(2);
+  }
+
+  flushCompleted();
 }
 
 Status Distributed::acceptWork(const std::string& work) {
@@ -167,57 +296,25 @@ Status Distributed::acceptWork(const std::string& work) {
     return Status(1, "Error Parsing JSON");
   }
 
-  std::set<std::string> queries_to_run;
-  // Check for and run discovery queries first
-  if (doc.doc().HasMember("discovery")) {
-    const auto& queries = doc.doc()["discovery"];
-    assert(queries.IsObject());
-
-    if (queries.IsObject()) {
-      for (const auto& query_entry : queries.GetObject()) {
-        if (!query_entry.name.IsString() || !query_entry.value.IsString()) {
-          return Status(1, "Distributed discovery query is not a string");
-        }
-
-        auto name = std::string(query_entry.name.GetString());
-        auto query = std::string(query_entry.value.GetString());
-        if (query.empty() || name.empty()) {
-          return Status(1, "Distributed discovery query is not a string");
-        }
-
-        SQL sql(query);
-        if (!sql.getStatus().ok()) {
-          return Status(1, "Distributed discovery query has an SQL error");
-        }
-        if (sql.rows().size() > 0) {
-          queries_to_run.insert(name);
-        }
-      }
-    }
-  }
+  Status discoveryStatus = passesDiscovery(doc);
 
   if (doc.doc().HasMember("queries")) {
     const auto& queries = doc.doc()["queries"];
     assert(queries.IsObject());
 
-    if (queries.IsObject()) {
-      for (const auto& query_entry : queries.GetObject()) {
-        if (!query_entry.name.IsString() || !query_entry.value.IsString()) {
-          return Status(1, "Distributed query is not a string");
-        }
+    if (!queries.IsObject()) {
+      return Status(1, "Format error: Distributed 'queries' is not object");
+    }
 
-        auto name = std::string(query_entry.name.GetString());
-        auto query = std::string(query_entry.value.GetString());
-        if (name.empty() || query.empty()) {
-          return Status(1, "Distributed query is not a string");
-        }
-
-        if (queries_to_run.empty() || queries_to_run.count(name)) {
-          setDatabaseValue(kQueries, kDistributedQueryPrefix + name, query);
-        }
-      }
+    Status status = populateResultState(doc, discoveryStatus);
+    if (status.ok()) {
+      // good to go. Save work to DB in case watchdog kills worker
+      setDatabaseValue(kPersistentSettings, "distributed_work", work);
+    } else {
+      return status; // parsing failed
     }
   }
+
   if (doc.doc().HasMember("accelerate")) {
     const auto& accelerate = doc.doc()["accelerate"];
     if (accelerate.IsInt()) {
@@ -234,28 +331,16 @@ Status Distributed::acceptWork(const std::string& work) {
   return Status();
 }
 
-DistributedQueryRequest Distributed::popRequest() {
-  // Read all pending queries.
-  std::vector<std::string> queries;
-  scanDatabaseKeys(kQueries, queries, kDistributedQueryPrefix);
-
-  // Set the last-most-recent query as the request, and delete it.
-  DistributedQueryRequest request;
-  const auto& next = queries.front();
-  request.id = next.substr(kDistributedQueryPrefix.size());
-  getDatabaseValue(kQueries, next, request.query);
-  deleteDatabaseValue(kQueries, next);
-  return request;
-}
-
 std::string Distributed::getCurrentRequestId() {
   return currentRequestId_;
 }
-
+/*
 void Distributed::setCurrentRequestId(const std::string& cReqId) {
   currentRequestId_ = cReqId;
+  setDatabaseValue(kPersistentSettings, "distributed_current_id", cReqId);
 }
-
+*/
+/*
 Status serializeDistributedQueryRequest(const DistributedQueryRequest& r,
                                         JSON& doc,
                                         rj::Value& obj) {
@@ -356,4 +441,5 @@ Status deserializeDistributedQueryResultJSON(const std::string& json,
   }
   return deserializeDistributedQueryResult(doc.doc(), r);
 }
+*/
 }

@@ -67,7 +67,7 @@ class DistributedTests : public testing::Test {
  private:
   bool server_started_{false};
 };
-
+/*
 TEST_F(DistributedTests, test_serialize_distributed_query_request) {
   DistributedQueryRequest r;
   r.query = "foo";
@@ -177,6 +177,7 @@ TEST_F(DistributedTests, test_deserialize_distributed_query_result_json) {
   ASSERT_EQ(r.results.size(), 1_sz);
   EXPECT_EQ(r.results[0]["foo"], "bar");
 }
+****/
 
 TEST_F(DistributedTests, test_workflow) {
   startServer();
