@@ -64,11 +64,22 @@ Status Distributed::pullUpdates() {
     return Status(1, "Missing distributed plugin: " + distributed_plugin);
   }
 
+  if (results_.size() > 0) {
+    // still have some results we haven't been able to report.
+    // Is the distributed_write endpoint down?
+
+    if (!flushCompleted().ok()) {
+      return Status(1, "Waiting to report");
+    }
+  }
+
   reportInterruptedWork();
 
   PluginResponse response;
   auto status =
       Registry::call("distributed", {{"action", "getQueries"}}, response);
+  numDistReads_++;
+
   if (!status.ok()) {
     return status;
   }
@@ -80,24 +91,38 @@ Status Distributed::pullUpdates() {
   return Status(0, "OK");
 }
 
-
+/**
+ * getPendingQueryCount
+ * Return number of queries waiting to be executed.
+ */
 size_t Distributed::getPendingQueryCount() {
   int num = 0;
   for (auto item : results_) {
-    if (item.status.getCode() == -1) { num += 1; }
+    if (item.isPending()) {
+      num += 1;
+    }
   }
   return num;
 }
-/*
-size_t Distributed::getCompletedCount() {
-  return results_.size() - getPendingQueryCount();
-}*/
+
+// Returns the number of time distributed_read endpoint was accessed
+size_t Distributed::numDistReads() {
+  return numDistReads_;
+}
+
+// Returns the number of time distributed_write endpoint was accessed
+size_t Distributed::numDistWrites() {
+  return numDistWrites_;
+}
 
 Status Distributed::serializeResults(std::string& json) {
   auto doc = JSON::newObject();
   auto queries_obj = doc.getObject();
   auto statuses_obj = doc.getObject();
   for (const auto& result : results_) {
+    if (result.isPending() || result.hasReported) {
+      continue;
+    }
     auto arr = doc.getArray();
     auto s = serializeQueryData(result.results, result.columns, doc, arr);
     if (!s.ok()) {
@@ -111,17 +136,12 @@ Status Distributed::serializeResults(std::string& json) {
   doc.add("statuses", statuses_obj);
   return doc.toString(json);
 }
-/*
-void Distributed::addResult(const DistributedQueryResult& result) {
-  results_.push_back(result);
-}*/
 
 Status Distributed::runQueries() {
-  LOG(WARNING) << "Distributed::runQueries()";
-
-  for (auto &item : results_) {
-    // skip queries marked as done
-    if (item.status.getCode() != -1) { continue; }
+  for (auto& item : results_) {
+    if (false == item.isPending()) {
+      continue;
+    }
 
     currentRequestId_ = item.id;
     setDatabaseValue(kPersistentSettings, "distributed_query_id", item.id);
@@ -140,7 +160,12 @@ Status Distributed::runQueries() {
     currentRequestId_ = "";
     deleteDatabaseValue(kPersistentSettings, "distributed_query_id");
   }
-  return flushCompleted();
+
+  flushCompleted();
+
+  // DistributedRunner::start does not currently check returned status
+
+  return Status();
 }
 
 Status Distributed::flushCompleted() {
@@ -163,18 +188,38 @@ Status Distributed::flushCompleted() {
   s = Registry::call("distributed",
                      {{"action", "writeResults"}, {"results", results}},
                      response);
+  numDistWrites_++;
 
   // NOTE: If unable to report, results kept in memory until retry
-  if (s.ok()) {
+
+  if (!s.ok()) {
+    LOG(WARNING) << "writeResults failed";
+    return s;
+  }
+
+  // successfully reported.  Cleanup if possible
+
+  if (getPendingQueryCount() == 0) {
+    // all queries done and reported. clear all.
+
     results_.clear();
     deleteDatabaseValue(kPersistentSettings, "distributed_work");
-    deleteDatabaseValue(kPersistentSettings, "distributed_query_id");
+
+  } else {
+    // still some queries not yet executed. Mark reported.
+
+    for (auto& item : results_) {
+      if (item.isPending()) {
+        continue;
+      }
+      item.hasReported = true;
+    }
   }
+
   return s;
 }
 
-Status Distributed::passesDiscovery(const JSON &doc)
-{
+Status Distributed::passesDiscovery(const JSON& doc) {
   if (!doc.doc().HasMember("discovery")) {
     return Status();
   }
@@ -197,6 +242,8 @@ Status Distributed::passesDiscovery(const JSON &doc)
       }
 
       numDiscoveryQueries++;
+      LOG(INFO) << "Executing distributed DISCOVERY query: " << name << ": "
+                << query;
 
       SQL sql(query);
       if (!sql.getStatus().ok()) {
@@ -233,8 +280,8 @@ static inline std::string getStr(const rj::Value& node) {
  * are set to 0, meaning success.  Discovery queries are used to check
  * whether a set of queries are relevant to the target device.
  */
-Status Distributed::populateResultState(const JSON &doc, Status discoveryStatus)
-{
+Status Distributed::populateResultState(const JSON& doc,
+                                        Status discoveryStatus) {
   const auto& queries = doc.doc()["queries"];
 
   for (const auto& query_entry : queries.GetObject()) {
@@ -257,19 +304,26 @@ Status Distributed::populateResultState(const JSON &doc, Status discoveryStatus)
   return Status();
 }
 
+/**
+ * reportInterruptedWork()
+ * If one of the distributed queries uses too much CPU or memory,
+ * the worker process will be killed by Watcher process.  We need to
+ * report status on the lost queries.  At startup, pullUpdates() calls this
+ * function, and it will check database to see if a request was interrupted.
+ */
 void Distributed::reportInterruptedWork() {
   std::string work;
   std::string lastQueryId;
   getDatabaseValue(kPersistentSettings, "distributed_work", work);
   getDatabaseValue(kPersistentSettings, "distributed_query_id", lastQueryId);
 
-  if (work.empty() && lastQueryId.empty()) {
-    return;
-  }
-
   // clear
   deleteDatabaseValue(kPersistentSettings, "distributed_work");
   deleteDatabaseValue(kPersistentSettings, "distributed_query_id");
+
+  if (work.empty() && lastQueryId.empty()) {
+    return;
+  }
 
   if (work.empty()) {
     LOG(WARNING) << "distributed_work not in DB, but distributed_query_id was";
@@ -281,11 +335,17 @@ void Distributed::reportInterruptedWork() {
     return;
   }
 
-  // load last
+  // load queries
+
   populateResultState(doc, Status());
-  for (auto &item : results_) {
-    item.status = Status(2);
+
+  // mark with INTERRUPTED status
+
+  for (auto& item : results_) {
+    item.status = Status(DQ_INTERRUPTED_STATUS, "INTERRUPTED");
   }
+
+  // send response
 
   flushCompleted();
 }
@@ -331,115 +391,8 @@ Status Distributed::acceptWork(const std::string& work) {
   return Status();
 }
 
+// static function used by Carver
 std::string Distributed::getCurrentRequestId() {
   return currentRequestId_;
 }
-/*
-void Distributed::setCurrentRequestId(const std::string& cReqId) {
-  currentRequestId_ = cReqId;
-  setDatabaseValue(kPersistentSettings, "distributed_current_id", cReqId);
-}
-*/
-/*
-Status serializeDistributedQueryRequest(const DistributedQueryRequest& r,
-                                        JSON& doc,
-                                        rj::Value& obj) {
-  assert(obj.IsObject());
-  doc.addCopy("query", r.query, obj);
-  doc.addCopy("id", r.id, obj);
-  return Status();
-}
-
-Status serializeDistributedQueryRequestJSON(const DistributedQueryRequest& r,
-                                            std::string& json) {
-  auto doc = JSON::newObject();
-  auto s = serializeDistributedQueryRequest(r, doc, doc.doc());
-  if (!s.ok()) {
-    return s;
-  }
-
-  return doc.toString(json);
-}
-
-Status deserializeDistributedQueryRequest(const rj::Value& obj,
-                                          DistributedQueryRequest& r) {
-  if (!obj.HasMember("query") || !obj.HasMember("id") ||
-      !obj["query"].IsString() || !obj["id"].IsString()) {
-    return Status(1, "Malformed distributed query request");
-  }
-
-  r.query = obj["query"].GetString();
-  r.id = obj["id"].GetString();
-  return Status();
-}
-
-Status deserializeDistributedQueryRequestJSON(const std::string& json,
-                                              DistributedQueryRequest& r) {
-  auto doc = JSON::newObject();
-  if (!doc.fromString(json) || !doc.doc().IsObject()) {
-    return Status(1, "Error Parsing JSON");
-  }
-  return deserializeDistributedQueryRequest(doc.doc(), r);
-}
-
-Status serializeDistributedQueryResult(const DistributedQueryResult& r,
-                                       JSON& doc,
-                                       rj::Value& obj) {
-  auto request_obj = doc.getObject();
-  auto s = serializeDistributedQueryRequest(r.request, doc, request_obj);
-  if (!s.ok()) {
-    return s;
-  }
-
-  auto results_arr = doc.getArray();
-  s = serializeQueryData(r.results, r.columns, doc, results_arr);
-  if (!s.ok()) {
-    return s;
-  }
-
-  doc.add("request", request_obj);
-  doc.add("results", results_arr);
-  return Status();
-}
-
-Status serializeDistributedQueryResultJSON(const DistributedQueryResult& r,
-                                           std::string& json) {
-  auto doc = JSON::newObject();
-  auto s = serializeDistributedQueryResult(r, doc, doc.doc());
-  if (!s.ok()) {
-    return s;
-  }
-
-  return doc.toString(json);
-}
-
-Status deserializeDistributedQueryResult(const rj::Value& obj,
-                                         DistributedQueryResult& r) {
-  DistributedQueryRequest request;
-  auto s = deserializeDistributedQueryRequest(obj["request"], request);
-  if (!s.ok()) {
-    return s;
-  }
-
-  QueryData results;
-  s = deserializeQueryData(obj["results"], results);
-  if (!s.ok()) {
-    return s;
-  }
-
-  r.request = request;
-  r.results = results;
-
-  return Status();
-}
-
-Status deserializeDistributedQueryResultJSON(const std::string& json,
-                                             DistributedQueryResult& r) {
-  auto doc = JSON::newObject();
-  if (!doc.fromString(json) || !doc.doc().IsObject()) {
-    return Status(1, "Error Parsing JSON");
-  }
-  return deserializeDistributedQueryResult(doc.doc(), r);
-}
-*/
-}
+} // namespace osquery

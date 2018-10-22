@@ -17,6 +17,12 @@
 #include <osquery/query.h>
 #include <osquery/status.h>
 
+// PENDING status is runtime only, never reported back to endpoint
+#define DQ_PENDING_STATUS -1
+
+// INTERRUPTED status is when watcher kills resource intensive dist query
+#define DQ_INTERRUPTED_STATUS 9
+
 namespace osquery {
 
 /**
@@ -26,13 +32,23 @@ struct DistributedQueryResult {
  public:
   DistributedQueryResult() {}
   DistributedQueryResult(std::string qid, std::string q)
-    : id(qid), query(q),  results(), columns(), status(-1) {}
+      : id(qid),
+        query(q),
+        results(),
+        columns(),
+        status(DQ_PENDING_STATUS),
+        hasReported(false) {}
+
+  bool isPending() const {
+    return status.getCode() == DQ_PENDING_STATUS;
+  }
 
   std::string id;
   std::string query;
   QueryData results;
   ColumnNames columns;
   Status status;
+  bool hasReported;
 };
 
 class DistributedPlugin : public Plugin {
@@ -132,6 +148,12 @@ class Distributed {
   // NOTE referenced externally by Carver
   static std::string getCurrentRequestId();
 
+  // Returns the number of time distributed_read endpoint was accessed
+  size_t numDistReads();
+
+  // Returns the number of time distributed_write endpoint was accessed
+  size_t numDistWrites();
+
  protected:
   /**
    * @brief Process several queries from a distributed plugin
@@ -145,38 +167,46 @@ class Distributed {
   Status acceptWork(const std::string& work);
 
   /**
-   * @brief Pop a request object off of the queries_ member
-   *
-   * @return a DistributedQueryRequest object which needs to be executed
-   */
-//  DistributedQueryRequest popRequest();
-
-  /**
-   * @brief Queue a result to be batch sent to the server
-   *
-   * @param result is a DistributedQueryResult object to be sent to the server
-   */
-//  void addResult(const DistributedQueryResult& result);
-
-  /**
    * @brief Flush all of the collected results to the server
    */
   Status flushCompleted();
 
-  Status passesDiscovery(const JSON &doc);
-  Status populateResultState(const JSON &doc, Status discoveryStatus);
-  void reportInterruptedWork();
+  /**
+   * @brief Checks for 'discovery' queries in doc and executes them.
+   * @return true if no discovery, or all discovery queries return
+   *         more than one row.  false otherwise.
+   */
+  Status passesDiscovery(const JSON& doc);
 
-  // Setter for ID of currently executing request
-//  static void setCurrentRequestId(const std::string& cReqId);
+  /**
+   * @brief Populates results_ with id and query for all queries in doc.
+   * If discoveryStatus.ok()==false, will mark all results_ as
+   * completed with OK status and no rows.  This is because if discovery
+   * queries fail, these queries are not relevant to this device.
+   */
+  Status populateResultState(const JSON& doc, Status discoveryStatus);
+
+  /**
+   * @brief When a distributed read endpoint returns some work to be done,
+   * Distributed class will write the document to the DB, and when all work
+   * is done, remove it.  When the Distributed class starts up, it will check
+   * for the presence of the work doc in DB, and if present, it knows that
+   * distributed work was interrupted or restarted (presumably by watcher).
+   * This function is called from pullUpdates(), and will check for this
+   * scenario and report DQ_INTERRUPTED_STATUS(9) status for all queries.
+   */
+  void reportInterruptedWork();
 
   std::vector<DistributedQueryResult> results_;
 
   // ID of the currently executing query
   static std::string currentRequestId_;
 
+  size_t numDistReads_{0U};
+  size_t numDistWrites_{0U};
+
  private:
   friend class DistributedTests;
   FRIEND_TEST(DistributedTests, test_workflow);
 };
-}
+} // namespace osquery

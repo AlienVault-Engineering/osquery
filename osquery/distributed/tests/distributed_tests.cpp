@@ -31,16 +31,7 @@ namespace osquery {
 class DistributedTests : public testing::Test {
  protected:
   void TearDown() override {
-    if (server_started_) {
-      TLSServerRunner::stop();
-      TLSServerRunner::unsetClientConfig();
-      clearNodeKey();
-
-      Flag::updateValue("distributed_tls_read_endpoint",
-                        distributed_tls_read_endpoint_);
-      Flag::updateValue("distributed_tls_write_endpoint",
-                        distributed_tls_write_endpoint_);
-    }
+    stopServer();
   }
 
   void startServer() {
@@ -59,6 +50,18 @@ class DistributedTests : public testing::Test {
     Registry::get().setActive("distributed", "tls");
     server_started_ = true;
   }
+  void stopServer() {
+    if (server_started_) {
+      TLSServerRunner::stop();
+      TLSServerRunner::unsetClientConfig();
+      clearNodeKey();
+
+      Flag::updateValue("distributed_tls_read_endpoint",
+                        distributed_tls_read_endpoint_);
+      Flag::updateValue("distributed_tls_write_endpoint",
+                        distributed_tls_write_endpoint_);
+    }
+  }
 
  protected:
   std::string distributed_tls_read_endpoint_;
@@ -67,117 +70,6 @@ class DistributedTests : public testing::Test {
  private:
   bool server_started_{false};
 };
-/*
-TEST_F(DistributedTests, test_serialize_distributed_query_request) {
-  DistributedQueryRequest r;
-  r.query = "foo";
-  r.id = "bar";
-
-  auto doc = JSON::newObject();
-  auto s = serializeDistributedQueryRequest(r, doc, doc.doc());
-  EXPECT_TRUE(s.ok());
-  EXPECT_TRUE(doc.doc().HasMember("query") && doc.doc()["query"].IsString());
-  EXPECT_TRUE(doc.doc().HasMember("id") && doc.doc()["id"].IsString());
-  if (doc.doc().HasMember("query")) {
-    EXPECT_EQ(std::string(doc.doc()["query"].GetString()), "foo");
-  }
-  if (doc.doc().HasMember("id")) {
-    EXPECT_EQ(std::string(doc.doc()["id"].GetString()), "bar");
-  }
-}
-
-TEST_F(DistributedTests, test_deserialize_distributed_query_request) {
-  auto doc = JSON::newObject();
-  doc.addRef("query", "foo");
-  doc.addRef("id", "bar");
-
-  DistributedQueryRequest r;
-  auto s = deserializeDistributedQueryRequest(doc.doc(), r);
-  EXPECT_TRUE(s.ok());
-  EXPECT_EQ(r.query, "foo");
-  EXPECT_EQ(r.id, "bar");
-}
-
-TEST_F(DistributedTests, test_deserialize_distributed_query_request_json) {
-  std::string json = "{\"query\": \"foo\", \"id\": \"bar\"}";
-
-  DistributedQueryRequest r;
-  auto s = deserializeDistributedQueryRequestJSON(json, r);
-  EXPECT_TRUE(s.ok());
-  EXPECT_EQ(r.query, "foo");
-  EXPECT_EQ(r.id, "bar");
-}
-
-TEST_F(DistributedTests, test_serialize_distributed_query_result) {
-  DistributedQueryResult r;
-  r.request.query = "foo";
-  r.request.id = "bar";
-
-  Row r1;
-  r1["foo"] = "bar";
-  r.results = {r1};
-  r.columns = {"foo"};
-
-  //  rapidjson::Document d(rapidjson::kObjectType);
-  auto doc = JSON::newObject();
-  auto s = serializeDistributedQueryResult(r, doc, doc.doc());
-  EXPECT_TRUE(s.ok());
-  //  EXPECT_TRUE(doc.doc().IsObject());
-  EXPECT_EQ(doc.doc()["request"]["query"], "foo");
-  EXPECT_EQ(doc.doc()["request"]["id"], "bar");
-  EXPECT_TRUE(doc.doc()["results"].IsArray());
-  for (const auto& q : doc.doc()["results"].GetArray()) {
-    for (const auto& row : q.GetObject()) {
-      EXPECT_EQ(row.name, "foo");
-      EXPECT_EQ(q[row.name], "bar");
-    }
-  }
-}
-
-TEST_F(DistributedTests, test_deserialize_distributed_query_result) {
-  auto doc = JSON::newObject();
-  auto request_obj = doc.getObject();
-  doc.addRef("query", "bar", request_obj);
-  doc.addRef("id", "foo", request_obj);
-
-  auto row_obj = doc.getObject();
-  doc.addRef("foo", "bar", row_obj);
-
-  auto results_arr = doc.getArray();
-  doc.push(row_obj, results_arr);
-  doc.add("request", request_obj);
-  doc.add("results", results_arr);
-
-  DistributedQueryResult r;
-  auto s = deserializeDistributedQueryResult(doc.doc(), r);
-  EXPECT_EQ(r.request.id, "foo");
-  EXPECT_EQ(r.request.query, "bar");
-  EXPECT_EQ(r.results[0]["foo"], "bar");
-}
-
-TEST_F(DistributedTests, test_deserialize_distributed_query_result_json) {
-  auto json =
-      "{"
-      "  \"request\": {"
-      "    \"id\": \"foo\","
-      "    \"query\": \"bar\""
-      "  },"
-      "  \"results\": ["
-      "    {"
-      "      \"foo\": \"bar\""
-      "    }"
-      "  ]"
-      "}";
-
-  DistributedQueryResult r;
-  auto s = deserializeDistributedQueryResultJSON(json, r);
-  ASSERT_TRUE(s.ok());
-  EXPECT_EQ(r.request.id, "foo");
-  EXPECT_EQ(r.request.query, "bar");
-  ASSERT_EQ(r.results.size(), 1_sz);
-  EXPECT_EQ(r.results[0]["foo"], "bar");
-}
-****/
 
 TEST_F(DistributedTests, test_workflow) {
   startServer();
@@ -186,14 +78,116 @@ TEST_F(DistributedTests, test_workflow) {
   auto s = dist.pullUpdates();
   EXPECT_TRUE(s.ok());
   EXPECT_EQ(s.toString(), "OK");
+  EXPECT_EQ(0U, dist.numDistWrites());
 
   EXPECT_EQ(dist.getPendingQueryCount(), 2U);
-  EXPECT_EQ(dist.results_.size(), 0U);
+  EXPECT_EQ(dist.results_.size(), 2U);
   s = dist.runQueries();
   EXPECT_TRUE(s.ok());
   EXPECT_EQ(s.toString(), "OK");
 
   EXPECT_EQ(dist.getPendingQueryCount(), 0U);
   EXPECT_EQ(dist.results_.size(), 0U);
+
+  EXPECT_EQ(1U, dist.numDistWrites());
+  EXPECT_EQ(1U, dist.numDistReads());
 }
+
+static std::string strQueriesInterruptedJson =
+    "{\"queries\":{\"99_1\":\"SELECT * FROM time\"}}";
+
+/*
+ * At startup, Distributed should check 'distributed_work' key and
+ * report status interrupted (9) for all queries.  Here we make
+ * sure the 'distributed_work' value is removed after pullUpdates().
+ */
+TEST_F(DistributedTests, test_report_interrupted) {
+  startServer();
+
+  setDatabaseValue(
+      kPersistentSettings, "distributed_work", strQueriesInterruptedJson);
+
+  auto dist = Distributed();
+  auto s = dist.pullUpdates();
+  EXPECT_TRUE(s.ok());
+
+  EXPECT_EQ(1U, dist.numDistWrites());
+  EXPECT_EQ(1U, dist.numDistReads());
+
+  std::string strval;
+  getDatabaseValue(kPersistentSettings, "distributed_work", strval);
+
+  // should be replaced by server configured queries pullUpdates() received.
+  EXPECT_FALSE(strQueriesInterruptedJson == strval);
+
+  // finish up so there isn't DB state left for other tests
+  dist.runQueries();
 }
+
+/*
+ * If a distributed query contains discovery queries:
+ *  - If all queries return more than zero rows, run 'queries'.  Otherwise,
+ * return empty results.
+ */
+TEST_F(DistributedTests, test_discovery) {
+  static const std::string strNoDiscoveryQueriesJson =
+      "{\"discovery\":{\"dos\":\"SELECT * FROM time WHERE year > "
+      "1900\"},\"queries\":{\"1A\":\"SELECT year FROM time\"}}";
+  static const std::string strDiscoveryQueriesJson =
+      "{\"discovery\":{\"uno\":\"SELECT * FROM time WHERE "
+      "year=1902\",\"dos\":\"SELECT * FROM time WHERE year > "
+      "1900\"},\"queries\":{\"1A\":\"SELECT year FROM time\"}}";
+
+  startServer();
+  auto& rf = RegistryFactory::get();
+  auto status = rf.setActive("distributed", "mock");
+  EXPECT_TRUE(status.ok());
+  if (!status.ok()) {
+    return;
+  }
+
+  PluginResponse response;
+  status = Registry::call(
+      "distributed",
+      {{"action", "setMockReadValue"}, {"value", strDiscoveryQueriesJson}},
+      response);
+
+  auto dist = Distributed();
+  auto s = dist.pullUpdates();
+  EXPECT_TRUE(s.ok());
+
+  s = dist.runQueries();
+  EXPECT_TRUE(s.ok());
+  EXPECT_EQ(s.toString(), "OK");
+
+  response = PluginResponse();
+  status =
+      Registry::call("distributed", {{"action", "getMockWrites"}}, response);
+
+  EXPECT_EQ(1U, dist.numDistWrites());
+  EXPECT_EQ(1U, dist.numDistReads());
+
+  // discovery should fail, so result should have zero rows
+
+  auto response_json1 = response[0]["W_0"];
+
+  // no discovery, should have 1 row
+
+  status = Registry::call(
+      "distributed",
+      {{"action", "setMockReadValue"}, {"value", strNoDiscoveryQueriesJson}},
+      response);
+
+  dist.pullUpdates();
+  dist.runQueries();
+
+  response = PluginResponse();
+  status =
+      Registry::call("distributed", {{"action", "getMockWrites"}}, response);
+
+  auto response_json2 = response[0]["W_1"];
+
+  EXPECT_NE(response_json1, response_json2);
+}
+
+} // namespace osquery
