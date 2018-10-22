@@ -161,11 +161,9 @@ Status Distributed::runQueries() {
     deleteDatabaseValue(kPersistentSettings, "distributed_query_id");
   }
 
-  flushCompleted();
-
   // DistributedRunner::start does not currently check returned status
 
-  return Status();
+  return flushCompleted();
 }
 
 Status Distributed::flushCompleted() {

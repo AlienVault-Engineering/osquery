@@ -22,26 +22,40 @@
 
 namespace osquery {
 
+/**
+ * @brief A class that can be used in unit tests to mock up
+ * distributed read and write endpoints.  A test can set
+ * the query and read the result.
+ *
+ */
 class MockDistributedPlugin : public DistributedPlugin {
  public:
   MockDistributedPlugin()
       : DistributedPlugin(),
         read_value_(),
         writes_(),
-        read_status_(),
-        write_status_() {}
+        isReadEndpointEnabled_(true),
+        isWriteEndpointEnabled_(true) {}
 
   Status setUp() override {
     return Status();
   }
 
   Status getQueries(std::string& json) override {
+    if (!isReadEndpointEnabled_) {
+      LOG(INFO) << "getQueries : emulating endpoint DOWN";
+      return Status(1, "Endpoint DOWN");
+    }
     json = read_value_;
     LOG(INFO) << "getQueries " << json;
     return Status();
   }
 
   Status writeResults(const std::string& json) override {
+    if (!isWriteEndpointEnabled_) {
+      LOG(INFO) << "writeResults emulating endpoint DOWN";
+      return Status(1, "Endpoint down");
+    }
     LOG(INFO) << "writeResults " << json;
     writes_.push_back(json);
     return Status();
@@ -59,7 +73,7 @@ class MockDistributedPlugin : public DistributedPlugin {
       std::string queries;
       getQueries(queries);
       response.push_back({{"results", queries}});
-      return Status(0, "OK");
+      return Status();
 
     } else if (action == "writeResults") {
       if (request.count("results") == 0) {
@@ -75,28 +89,28 @@ class MockDistributedPlugin : public DistributedPlugin {
         m[std::string(idstr)] = writes_[i];
       }
       response.push_back({m});
+      return Status();
 
     } else if (action == "setMockReadStatus") {
-      read_status_ = parseStatus(request.at("status"));
+      isReadEndpointEnabled_ = (request.at("value") == "1");
+      return Status();
 
     } else if (action == "setMockWriteStatus") {
-      write_status_ = parseStatus(request.at("status"));
+      isWriteEndpointEnabled_ = (request.at("value") == "1");
+      return Status();
 
     } else if (action == "setMockReadValue") {
       read_value_ = request.at("value");
+      return Status();
     }
 
     return Status(1, "Distributed plugin action unknown: " + action);
   }
 
-  Status parseStatus(const std::string value) {
-    return Status(atoi(value.c_str()));
-  }
-
   std::string read_value_;
   std::vector<std::string> writes_;
-  Status read_status_;
-  Status write_status_;
+  bool isReadEndpointEnabled_;
+  bool isWriteEndpointEnabled_;
 };
 
 REGISTER(MockDistributedPlugin, "distributed", "mock");

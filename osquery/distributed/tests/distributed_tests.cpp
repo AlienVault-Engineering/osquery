@@ -18,6 +18,7 @@
 #include <osquery/registry_factory.h>
 #include <osquery/sql.h>
 
+#include "mock_distributed_plugin.h"
 #include "osquery/core/json.h"
 #include "osquery/sql/sqlite_util.h"
 #include "osquery/tests/test_additional_util.h"
@@ -130,10 +131,10 @@ TEST_F(DistributedTests, test_report_interrupted) {
  * return empty results.
  */
 TEST_F(DistributedTests, test_discovery) {
-  static const std::string strNoDiscoveryQueriesJson =
+  static const std::string strAlwaysDiscoveryQueriesJson =
       "{\"discovery\":{\"dos\":\"SELECT * FROM time WHERE year > "
       "1900\"},\"queries\":{\"1A\":\"SELECT year FROM time\"}}";
-  static const std::string strDiscoveryQueriesJson =
+  static const std::string strNeverDiscoveryQueriesJson =
       "{\"discovery\":{\"uno\":\"SELECT * FROM time WHERE "
       "year=1902\",\"dos\":\"SELECT * FROM time WHERE year > "
       "1900\"},\"queries\":{\"1A\":\"SELECT year FROM time\"}}";
@@ -146,11 +147,8 @@ TEST_F(DistributedTests, test_discovery) {
     return;
   }
 
-  PluginResponse response;
-  status = Registry::call(
-      "distributed",
-      {{"action", "setMockReadValue"}, {"value", strDiscoveryQueriesJson}},
-      response);
+  status = MockDistributedSetReadValue(strNeverDiscoveryQueriesJson);
+  EXPECT_TRUE(status.ok());
 
   auto dist = Distributed();
   auto s = dist.pullUpdates();
@@ -159,35 +157,72 @@ TEST_F(DistributedTests, test_discovery) {
   s = dist.runQueries();
   EXPECT_TRUE(s.ok());
   EXPECT_EQ(s.toString(), "OK");
-
-  response = PluginResponse();
-  status =
-      Registry::call("distributed", {{"action", "getMockWrites"}}, response);
-
   EXPECT_EQ(1U, dist.numDistWrites());
   EXPECT_EQ(1U, dist.numDistReads());
 
+  auto writes = std::vector<std::string>();
+
+  status = MockDistributedGetWrites(writes);
+  EXPECT_TRUE(status.ok());
+
   // discovery should fail, so result should have zero rows
 
-  auto response_json1 = response[0]["W_0"];
+  auto response_json1 = writes[0];
 
-  // no discovery, should have 1 row
+  // This discovery should always pass, should have 1 row
 
-  status = Registry::call(
-      "distributed",
-      {{"action", "setMockReadValue"}, {"value", strNoDiscoveryQueriesJson}},
-      response);
+  status = MockDistributedSetReadValue(strAlwaysDiscoveryQueriesJson);
 
   dist.pullUpdates();
   dist.runQueries();
 
-  response = PluginResponse();
-  status =
-      Registry::call("distributed", {{"action", "getMockWrites"}}, response);
+  writes.clear();
+  status = MockDistributedGetWrites(writes);
+  EXPECT_TRUE(status.ok());
+  EXPECT_EQ(2, writes.size());
 
-  auto response_json2 = response[0]["W_1"];
+  auto response_json2 = writes[1];
 
   EXPECT_NE(response_json1, response_json2);
+}
+
+TEST_F(DistributedTests, test_write_endpoint_down) {
+  static std::string strQuery =
+      "{\"queries\":{\"C1\":\"SELECT year FROM time\"}}";
+
+  startServer();
+  auto& rf = RegistryFactory::get();
+  auto status = rf.setActive("distributed", "mock");
+  EXPECT_TRUE(status.ok());
+  if (!status.ok()) {
+    return;
+  }
+
+  status = MockDistributedSetReadValue(strQuery);
+  EXPECT_TRUE(status.ok());
+
+  MockDistributedWriteEndpointEnabled(false);
+
+  auto dist = Distributed();
+  auto s = dist.pullUpdates();
+  EXPECT_TRUE(s.ok());
+
+  s = dist.runQueries();
+  EXPECT_FALSE(s.ok());
+
+  s = dist.runQueries();
+  EXPECT_FALSE(s.ok());
+
+  s = dist.pullUpdates();
+  EXPECT_FALSE(s.ok());
+  /*
+    auto dist = Distributed();
+    while (!interrupted()) {
+      dist.pullUpdates();
+      if (dist.getPendingQueryCount() > 0) {
+        dist.runQueries();
+      }
+  */
 }
 
 } // namespace osquery
