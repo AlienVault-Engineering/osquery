@@ -30,6 +30,7 @@ DECLARE_string(distributed_tls_write_endpoint);
 namespace osquery {
 
 DECLARE_bool(distributed_write_individually);
+DECLARE_uint64(distributed_intra_sleep);
 
 class DistributedTests : public testing::Test {
  protected:
@@ -440,6 +441,38 @@ TEST_F(DistributedTests, bad_docs) {
     EXPECT_EQ(1U, dist.numDistReads());
     EXPECT_EQ(0U, dist.numDistWrites());
   }
+}
+
+TEST_F(DistributedTests, intra_sleep) {
+  static const std::string strQuery =
+      "{\"queries\":{\"D1\":\"SELECT year FROM time\", \"D2\":\"SELECT day "
+      "FROM time\", \"D3\":\"SELECT timestamp FROM time\"}}";
+  startServer();
+
+  FLAGS_distributed_intra_sleep = 1;
+  auto t1 = getUnixTime();
+  if (!EnableMockDistPlugin()) {
+    return;
+  }
+
+  auto status = MockDistributedSetReadValue(strQuery);
+  EXPECT_TRUE(status.ok());
+
+  auto dist = Distributed();
+
+  status = dist.pullUpdates();
+  EXPECT_TRUE(status.ok());
+
+  status = dist.runQueries();
+  EXPECT_TRUE(status.ok());
+
+  auto t2 = getUnixTime();
+
+  auto delta = t2 - t1;
+  EXPECT_TRUE(delta >= 2);
+
+  EXPECT_EQ(1U, dist.numDistReads());
+  EXPECT_EQ(1U, dist.numDistWrites());
 }
 
 } // namespace osquery

@@ -9,6 +9,7 @@
  */
 
 #include <sstream>
+#include <thread>
 #include <utility>
 
 #include <osquery/database.h>
@@ -41,6 +42,11 @@ FLAG(bool,
      false,
      "Distributed results are written without waiting for all queries to be "
      "finished (default false)");
+
+FLAG(uint64,
+     distributed_intra_sleep,
+     0,
+     "Seconds to sleep between queries (default 0)");
 
 std::string Distributed::currentRequestId_{""};
 
@@ -152,9 +158,23 @@ Status Distributed::runQueries() {
     return Status(1, "Missing distributed plugin " + distributed_plugin);
   }
 
+  int i = -1;
   for (auto& item : results_) {
+    i++;
     if (false == item.isPending()) {
       continue;
+    }
+
+    // if a distributed query has a long list, may need a
+    // delay in between to avoid being killed by watcher.
+    if (i > 0 && FLAGS_distributed_intra_sleep > 0) {
+      if (FLAGS_distributed_intra_sleep > 30) {
+        FLAGS_distributed_intra_sleep = 30;
+      }
+      LOG(INFO) << "FLAGS_distributed_intra_sleep "
+                << FLAGS_distributed_intra_sleep;
+      std::this_thread::sleep_for(
+          std::chrono::seconds(FLAGS_distributed_intra_sleep));
     }
 
     currentRequestId_ = item.id;
@@ -265,6 +285,7 @@ Status Distributed::writeResult(DistributedQueryResult& item) {
   }
 
   item.hasReported = true;
+  item.results.clear();
 
   return s;
 }

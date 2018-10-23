@@ -138,7 +138,7 @@ class Distributed {
   /// Get the number of results which are waiting to be flushed
   size_t getCompletedCount();
 
-  /// Process and execute queued queries
+  /// Process and execute queries obtained from pullUpdates().
   Status runQueries();
 
   // Getter for ID of currently executing request
