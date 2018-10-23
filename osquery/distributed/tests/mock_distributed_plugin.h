@@ -44,6 +44,13 @@ Status MockDistributedGetWrites(std::vector<std::string>& dest) {
   return status;
 }
 
+Status MockDistributedClearWrites() {
+  PluginResponse response = PluginResponse();
+  Status status =
+      Registry::call("distributed", {{"action", "clearMockWrites"}}, response);
+  return status;
+}
+
 Status MockDistributedWriteEndpointEnabled(bool isEnabled) {
   PluginResponse response = PluginResponse();
   Status status = Registry::call(

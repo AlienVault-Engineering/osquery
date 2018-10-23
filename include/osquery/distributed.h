@@ -138,9 +138,6 @@ class Distributed {
   /// Get the number of results which are waiting to be flushed
   size_t getCompletedCount();
 
-  /// Serialize result data into a JSON string and clear the results
-  Status serializeResults(std::string& json);
-
   /// Process and execute queued queries
   Status runQueries();
 
@@ -171,6 +168,16 @@ class Distributed {
    */
   Status flushCompleted();
 
+  /// Serialize result data into a JSON string
+  Status serializeResults(std::string& json,
+                          DistributedQueryResult* result = 0L);
+
+  /**
+   * @brief Used to write a single result when
+   * FLAGS_distributed_write_individually==true.
+   */
+  Status writeResult(DistributedQueryResult& result);
+
   /**
    * @brief Checks for 'discovery' queries in doc and executes them.
    * @return true if no discovery, or all discovery queries return
@@ -196,6 +203,9 @@ class Distributed {
    * scenario and report DQ_INTERRUPTED_STATUS(9) status for all queries.
    */
   void reportInterruptedWork();
+
+  // if any of results[].hasReported are false
+  int numUnreported();
 
   std::vector<DistributedQueryResult> results_;
 

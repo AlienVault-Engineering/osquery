@@ -91,6 +91,10 @@ class MockDistributedPlugin : public DistributedPlugin {
       response.push_back({m});
       return Status();
 
+    } else if (action == "clearMockWrites") {
+      writes_.clear();
+      return Status();
+
     } else if (action == "setMockReadStatus") {
       isReadEndpointEnabled_ = (request.at("value") == "1");
       return Status();

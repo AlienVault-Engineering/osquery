@@ -23,6 +23,8 @@
 
 namespace rj = rapidjson;
 
+#define MAX_ACCEL_DURATION_SEC 3600 // 1 hour
+
 namespace osquery {
 
 CREATE_REGISTRY(DistributedPlugin, "distributed");
@@ -33,6 +35,12 @@ FLAG(bool,
      disable_distributed,
      true,
      "Disable distributed queries (default true)");
+
+FLAG(bool,
+     distributed_write_individually,
+     false,
+     "Distributed results are written without waiting for all queries to be "
+     "finished (default false)");
 
 std::string Distributed::currentRequestId_{""};
 
@@ -65,9 +73,9 @@ Status Distributed::pullUpdates() {
   }
 
   // should not have any work in progress when this is called.
-
   assert(results_.size() == 0);
 
+  // if last read document is in DB, worker process was killed
   reportInterruptedWork();
 
   PluginResponse response;
@@ -110,12 +118,16 @@ size_t Distributed::numDistWrites() {
   return numDistWrites_;
 }
 
-Status Distributed::serializeResults(std::string& json) {
+Status Distributed::serializeResults(std::string& json,
+                                     DistributedQueryResult* item) {
   auto doc = JSON::newObject();
   auto queries_obj = doc.getObject();
   auto statuses_obj = doc.getObject();
   for (const auto& result : results_) {
     if (result.isPending() || result.hasReported) {
+      continue;
+    }
+    if (0L != item && &result != item) {
       continue;
     }
     auto arr = doc.getArray();
@@ -133,6 +145,13 @@ Status Distributed::serializeResults(std::string& json) {
 }
 
 Status Distributed::runQueries() {
+  // sanity check - make sure plugin available
+  // Shouldn't ever fail, since read endpoint worked, so plugin must be active
+  auto distributed_plugin = RegistryFactory::get().getActive("distributed");
+  if (!RegistryFactory::get().exists("distributed", distributed_plugin)) {
+    return Status(1, "Missing distributed plugin " + distributed_plugin);
+  }
+
   for (auto& item : results_) {
     if (false == item.isPending()) {
       continue;
@@ -154,6 +173,11 @@ Status Distributed::runQueries() {
 
     currentRequestId_ = "";
     deleteDatabaseValue(kPersistentSettings, "distributed_query_id");
+
+    // if flag set, report results when ready, else flush when all are done.
+    if (FLAGS_distributed_write_individually && results_.size() > 0) {
+      writeResult(item);
+    }
   }
 
   // DistributedRunner::start does not currently check returned status
@@ -162,17 +186,68 @@ Status Distributed::runQueries() {
 }
 
 Status Distributed::flushCompleted() {
+  Status status = Status(0, "OK");
+
   if (results_.size() == 0) {
-    return Status(0, "OK");
+    return status;
   }
 
+  if (numUnreported() > 0) {
+    std::string results;
+    status = serializeResults(results);
+    if (!status.ok()) {
+      return status;
+    }
+
+    PluginResponse response;
+    status = Registry::call("distributed",
+                            {{"action", "writeResults"}, {"results", results}},
+                            response);
+    numDistWrites_++;
+
+    // The TLS plugin will retry FLAGS_distributed_tls_max_attempts(3) times.
+    // If unsuccessful, we drop it on the floor.
+    if (!status.ok()) {
+      LOG(WARNING) << "writeResults failed:";
+      std::string str;
+      for (auto item : results_) {
+        str += "{ id:" + item.id;
+        str += " query:" + item.query + "}";
+      }
+      LOG(WARNING) << "dropping distributed query results " << str;
+    }
+  }
+
+  // cleanup
+
+  results_.clear();
+  deleteDatabaseValue(kPersistentSettings, "distributed_work");
+
+  return status;
+}
+
+/**
+ * return number of unreported results,
+ * regardless of the status (could be pending)
+ */
+int Distributed::numUnreported() {
+  int n = 0;
+  for (auto& item : results_) {
+    if (false == item.hasReported) {
+      n++;
+    }
+  }
+  return n;
+}
+
+Status Distributed::writeResult(DistributedQueryResult& item) {
   auto distributed_plugin = RegistryFactory::get().getActive("distributed");
   if (!RegistryFactory::get().exists("distributed", distributed_plugin)) {
     return Status(1, "Missing distributed plugin " + distributed_plugin);
   }
 
   std::string results;
-  auto s = serializeResults(results);
+  auto s = serializeResults(results, &item);
   if (!s.ok()) {
     return s;
   }
@@ -186,19 +261,10 @@ Status Distributed::flushCompleted() {
   // The TLS plugin will retry FLAGS_distributed_tls_max_attempts(3) times.
   // If unsuccessful, we drop it on the floor.
   if (!s.ok()) {
-    LOG(WARNING) << "writeResults failed:";
-    std::string str;
-    for (auto item : results_) {
-      str += "{ id:" + item.id;
-      str += " query:" + item.query + "}";
-    }
-    LOG(WARNING) << "dropping distributed query results " << str;
+    LOG(WARNING) << "writeResult failed for id:" << item.id;
   }
 
-  // cleanup
-
-  results_.clear();
-  deleteDatabaseValue(kPersistentSettings, "distributed_work");
+  item.hasReported = true;
 
   return s;
 }
@@ -211,31 +277,32 @@ Status Distributed::passesDiscovery(const JSON& doc) {
   int numDiscoveryQueries = 0;
   int numDiscoveryPassed = 0;
   const auto& queries = doc.doc()["discovery"];
-  assert(queries.IsObject());
 
-  if (queries.IsObject()) {
-    for (const auto& query_entry : queries.GetObject()) {
-      if (!query_entry.name.IsString() || !query_entry.value.IsString()) {
-        return Status(1, "Distributed discovery query is not a string");
-      }
+  if (!queries.IsObject()) {
+    return Status(1, "Bad document: Distributed 'discovery' is not an object");
+  }
 
-      auto name = std::string(query_entry.name.GetString());
-      auto query = std::string(query_entry.value.GetString());
-      if (query.empty() || name.empty()) {
-        return Status(1, "Distributed discovery query is not a string");
-      }
+  for (const auto& query_entry : queries.GetObject()) {
+    if (!query_entry.name.IsString() || !query_entry.value.IsString()) {
+      return Status(1, "Distributed discovery query is not a string");
+    }
 
-      numDiscoveryQueries++;
-      LOG(INFO) << "Executing distributed DISCOVERY query: " << name << ": "
-                << query;
+    auto name = std::string(query_entry.name.GetString());
+    auto query = std::string(query_entry.value.GetString());
+    if (query.empty() || name.empty()) {
+      return Status(1, "Distributed discovery query is not a string");
+    }
 
-      SQL sql(query);
-      if (!sql.getStatus().ok()) {
-        return Status(1, "Distributed discovery query has an SQL error");
-      }
-      if (sql.rows().size() > 0) {
-        numDiscoveryPassed++;
-      }
+    numDiscoveryQueries++;
+    LOG(INFO) << "Executing distributed DISCOVERY query: " << name << ": "
+              << query;
+
+    SQL sql(query);
+    if (!sql.getStatus().ok()) {
+      return Status(1, "Distributed discovery query has an SQL error");
+    }
+    if (sql.rows().size() > 0) {
+      numDiscoveryPassed++;
     }
   }
 
@@ -319,6 +386,11 @@ void Distributed::reportInterruptedWork() {
     return;
   }
 
+  if (!lastQueryId.empty()) {
+    LOG(WARNING) << "distributed worker was interrupted running query id "
+                 << lastQueryId;
+  }
+
   // load queries
 
   populateResultState(doc, Status());
@@ -344,7 +416,6 @@ Status Distributed::acceptWork(const std::string& work) {
 
   if (doc.doc().HasMember("queries")) {
     const auto& queries = doc.doc()["queries"];
-    assert(queries.IsObject());
 
     if (!queries.IsObject()) {
       return Status(1, "Format error: Distributed 'queries' is not object");
@@ -361,7 +432,8 @@ Status Distributed::acceptWork(const std::string& work) {
 
   if (doc.doc().HasMember("accelerate")) {
     const auto& accelerate = doc.doc()["accelerate"];
-    if (accelerate.IsInt()) {
+    if (accelerate.IsInt() && accelerate.GetInt() > 0 &&
+        accelerate.GetInt() < MAX_ACCEL_DURATION_SEC) {
       auto duration = accelerate.GetInt();
       LOG(INFO) << "Accelerating distributed query checkins for " << duration
                 << " seconds";
@@ -369,7 +441,7 @@ Status Distributed::acceptWork(const std::string& work) {
                        "distributed_accelerate_checkins_expire",
                        std::to_string(getUnixTime() + duration));
     } else {
-      VLOG(1) << "Falied to Accelerate: Timeframe is not an integer";
+      VLOG(1) << "Invalid argument for accelerate. must be int > 0 < MAX";
     }
   }
   return Status();

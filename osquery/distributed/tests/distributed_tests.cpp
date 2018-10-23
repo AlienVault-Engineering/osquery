@@ -29,6 +29,8 @@ DECLARE_string(distributed_tls_write_endpoint);
 
 namespace osquery {
 
+DECLARE_bool(distributed_write_individually);
+
 class DistributedTests : public testing::Test {
  protected:
   void TearDown() override {
@@ -94,19 +96,19 @@ TEST_F(DistributedTests, test_workflow) {
   EXPECT_EQ(1U, dist.numDistReads());
 }
 
-static std::string strQueriesInterruptedJson =
-    "{\"queries\":{\"99_1\":\"SELECT * FROM time\"}}";
-
 /*
  * At startup, Distributed should check 'distributed_work' key and
  * report status interrupted (9) for all queries.  Here we make
  * sure the 'distributed_work' value is removed after pullUpdates().
  */
 TEST_F(DistributedTests, test_report_interrupted) {
+  static std::string strLastWork =
+      "{\"queries\":{\"99_1\":\"SELECT timestamp FROM time\",\"99_2\":\"SELECT "
+      "year FROM time\"}}";
+
   startServer();
 
-  setDatabaseValue(
-      kPersistentSettings, "distributed_work", strQueriesInterruptedJson);
+  setDatabaseValue(kPersistentSettings, "distributed_work", strLastWork);
 
   auto dist = Distributed();
   auto s = dist.pullUpdates();
@@ -119,10 +121,17 @@ TEST_F(DistributedTests, test_report_interrupted) {
   getDatabaseValue(kPersistentSettings, "distributed_work", strval);
 
   // should be replaced by server configured queries pullUpdates() received.
-  EXPECT_FALSE(strQueriesInterruptedJson == strval);
+  EXPECT_FALSE(strLastWork == strval);
 
   // finish up so there isn't DB state left for other tests
   dist.runQueries();
+}
+
+static bool EnableMockDistPlugin() {
+  auto& rf = RegistryFactory::get();
+  auto status = rf.setActive("distributed", "mock");
+  EXPECT_TRUE(status.ok());
+  return status.ok();
 }
 
 /*
@@ -133,30 +142,30 @@ TEST_F(DistributedTests, test_report_interrupted) {
 TEST_F(DistributedTests, test_discovery) {
   static const std::string strAlwaysDiscoveryQueriesJson =
       "{\"discovery\":{\"dos\":\"SELECT * FROM time WHERE year > "
-      "1900\"},\"queries\":{\"1A\":\"SELECT year FROM time\"}}";
+      "1900\"},\"queries\":{\"1A\":\"SELECT year FROM time\",\"1B\":\"SELECT "
+      "timestamp FROM time\"}}";
   static const std::string strNeverDiscoveryQueriesJson =
       "{\"discovery\":{\"uno\":\"SELECT * FROM time WHERE "
       "year=1902\",\"dos\":\"SELECT * FROM time WHERE year > "
-      "1900\"},\"queries\":{\"1A\":\"SELECT year FROM time\"}}";
+      "1900\"},\"queries\":{\"1A\":\"SELECT year FROM time\",\"1B\":\"SELECT "
+      "timestamp FROM time\"}}";
 
   startServer();
-  auto& rf = RegistryFactory::get();
-  auto status = rf.setActive("distributed", "mock");
-  EXPECT_TRUE(status.ok());
-  if (!status.ok()) {
+
+  if (!EnableMockDistPlugin()) {
     return;
   }
 
-  status = MockDistributedSetReadValue(strNeverDiscoveryQueriesJson);
+  auto status = MockDistributedSetReadValue(strNeverDiscoveryQueriesJson);
   EXPECT_TRUE(status.ok());
 
   auto dist = Distributed();
-  auto s = dist.pullUpdates();
-  EXPECT_TRUE(s.ok());
+  status = dist.pullUpdates();
+  EXPECT_TRUE(status.ok());
 
-  s = dist.runQueries();
-  EXPECT_TRUE(s.ok());
-  EXPECT_EQ(s.toString(), "OK");
+  status = dist.runQueries();
+  EXPECT_TRUE(status.ok());
+  EXPECT_EQ(status.toString(), "OK");
   EXPECT_EQ(1U, dist.numDistWrites());
   EXPECT_EQ(1U, dist.numDistReads());
 
@@ -188,27 +197,26 @@ TEST_F(DistributedTests, test_discovery) {
 
 TEST_F(DistributedTests, test_write_endpoint_down) {
   static std::string strQuery =
-      "{\"queries\":{\"C1\":\"SELECT year FROM time\"}}";
+      "{\"queries\":{\"C1\":\"SELECT year FROM time\",\"C2\":\"SELECT "
+      "timestamp FROM time\"}}";
 
   startServer();
-  auto& rf = RegistryFactory::get();
-  auto status = rf.setActive("distributed", "mock");
-  EXPECT_TRUE(status.ok());
-  if (!status.ok()) {
+
+  if (!EnableMockDistPlugin()) {
     return;
   }
 
-  status = MockDistributedSetReadValue(strQuery);
+  auto status = MockDistributedSetReadValue(strQuery);
   EXPECT_TRUE(status.ok());
 
   MockDistributedWriteEndpointEnabled(false);
 
   auto dist = Distributed();
-  auto s = dist.pullUpdates();
-  EXPECT_TRUE(s.ok());
+  status = dist.pullUpdates();
+  EXPECT_TRUE(status.ok());
 
-  s = dist.runQueries();
-  EXPECT_FALSE(s.ok());
+  status = dist.runQueries();
+  EXPECT_FALSE(status.ok());
 
   // NOTE : results get dropped
 
@@ -217,14 +225,221 @@ TEST_F(DistributedTests, test_write_endpoint_down) {
   status = MockDistributedSetReadValue("{}");
   MockDistributedWriteEndpointEnabled(false);
 
-  s = dist.pullUpdates();
-  EXPECT_TRUE(s.ok());
+  status = dist.pullUpdates();
+  EXPECT_TRUE(status.ok());
 
-  s = dist.runQueries(); // no results to send, will not call write
-  EXPECT_TRUE(s.ok());
+  status = dist.runQueries(); // no results to send, will not call write
+  EXPECT_TRUE(status.ok());
 
   EXPECT_EQ(2U, dist.numDistReads());
   EXPECT_EQ(1U, dist.numDistWrites());
+
+  MockDistributedWriteEndpointEnabled(true);
+}
+
+/*
+ * Distributed work with many queries might want to be reported
+ * individually, rather than waiting on all to complete.  Especially
+ * if some queries have big result sets that would be kept in memory.
+ * This test will set FLAGS_distributed_write_individually = true
+ * and make sure each query is reported individually.
+ */
+TEST_F(DistributedTests, can_report_individually) {
+  static std::string strQuery =
+      "{\"queries\":{\"D1\":\"SELECT year FROM time\", \"D2\":\"SELECT day "
+      "FROM time\", \"D3\":\"SELECT timestamp FROM time\"}}";
+
+  startServer();
+
+  FLAGS_distributed_write_individually = true;
+
+  if (!EnableMockDistPlugin()) {
+    return;
+  }
+
+  MockDistributedClearWrites();
+
+  auto status = MockDistributedSetReadValue(strQuery);
+  EXPECT_TRUE(status.ok());
+
+  auto dist = Distributed();
+
+  status = dist.pullUpdates();
+  EXPECT_TRUE(status.ok());
+
+  status = dist.runQueries();
+  EXPECT_TRUE(status.ok());
+
+  EXPECT_EQ(1U, dist.numDistReads());
+  EXPECT_EQ(3U, dist.numDistWrites());
+
+  auto writes = std::vector<std::string>();
+
+  status = MockDistributedGetWrites(writes);
+  EXPECT_TRUE(status.ok());
+  EXPECT_EQ(3, writes.size());
+
+  // try again with flag off
+
+  FLAGS_distributed_write_individually = false;
+  MockDistributedClearWrites();
+
+  status = dist.pullUpdates();
+  EXPECT_TRUE(status.ok());
+
+  status = dist.runQueries();
+  EXPECT_TRUE(status.ok());
+
+  EXPECT_EQ(2U, dist.numDistReads());
+  EXPECT_EQ(4U, dist.numDistWrites());
+
+  status = MockDistributedGetWrites(writes);
+  EXPECT_EQ(4, writes.size());
+}
+
+/*
+ * In this case, the first queries object is the one that gets used.
+ * the D3 query is never executed or reported.
+ */
+TEST_F(DistributedTests, queries_appears_twice) {
+  static const std::string strQuery =
+      "{\"queries\":{\"D1\":\"SELECT year FROM time\", \"D2\":\"SELECT day "
+      "FROM time\"},\"queries\":{\"D3\":\"SELECT timestamp FROM time\"}}";
+
+  startServer();
+
+  if (!EnableMockDistPlugin()) {
+    return;
+  }
+
+  FLAGS_distributed_write_individually = true;
+  MockDistributedClearWrites();
+  auto status = MockDistributedSetReadValue(strQuery);
+  EXPECT_TRUE(status.ok());
+
+  auto dist = Distributed();
+
+  status = dist.pullUpdates();
+  EXPECT_TRUE(status.ok());
+
+  status = dist.runQueries();
+  EXPECT_TRUE(status.ok());
+
+  EXPECT_EQ(1U, dist.numDistReads());
+  EXPECT_EQ(2U, dist.numDistWrites());
+
+  auto writes = std::vector<std::string>();
+  status = MockDistributedGetWrites(writes);
+  EXPECT_EQ(2, writes.size());
+
+  FLAGS_distributed_write_individually = false;
+}
+
+TEST_F(DistributedTests, empty) {
+  static const std::string strQueryNoQueries = "{\"queries\":{}}";
+
+  startServer();
+
+  if (!EnableMockDistPlugin()) {
+    return;
+  }
+
+  auto status = MockDistributedSetReadValue(strQueryNoQueries);
+  EXPECT_TRUE(status.ok());
+
+  auto dist = Distributed();
+
+  status = dist.pullUpdates();
+  EXPECT_TRUE(status.ok());
+
+  status = dist.runQueries();
+  EXPECT_TRUE(status.ok());
+
+  EXPECT_EQ(1U, dist.numDistReads());
+  EXPECT_EQ(0U, dist.numDistWrites());
+}
+
+TEST_F(DistributedTests, accelerate_for_minute) {
+  static const std::string strQueryAccel = "{\"accelerate\":60}";
+
+  startServer();
+
+  if (!EnableMockDistPlugin()) {
+    return;
+  }
+
+  std::string strExp1 = "";
+  getDatabaseValue(
+      kPersistentSettings, "distributed_accelerate_checkins_expire", strExp1);
+
+  auto status = MockDistributedSetReadValue(strQueryAccel);
+  EXPECT_TRUE(status.ok());
+
+  auto dist = Distributed();
+
+  status = dist.pullUpdates();
+  EXPECT_TRUE(status.ok());
+
+  status = dist.runQueries();
+  EXPECT_TRUE(status.ok());
+
+  EXPECT_EQ(1U, dist.numDistReads());
+  EXPECT_EQ(0U, dist.numDistWrites());
+
+  std::string strExp2 = "";
+  getDatabaseValue(
+      kPersistentSettings, "distributed_accelerate_checkins_expire", strExp2);
+  EXPECT_NE(strExp1, strExp2);
+
+  deleteDatabaseValue(kPersistentSettings,
+                      "distributed_accelerate_checkins_expire");
+}
+
+TEST_F(DistributedTests, bad_docs) {
+  static const std::string strQueryEmpty = "";
+  static const std::string strQueryNotObject =
+      "{\"queries\":[\"SELECT * FROM time\"]}";
+  static const std::string strQueryIntId =
+      "{\"queries\":{2:\"SELECT * FROM time\"}}";
+  static const std::string strQueryNegativeAccel = "{\"accelerate\": -300 }";
+  static const std::string strQueryAccelLong = "{\"accelerate\": 5000 }";
+
+  static const std::string strDiscNotObject =
+      "{\"discovery\":[\"SELECT * FROM time\"]}";
+  static const std::string strDiscNoQuery =
+      "{\"discovery\":{\"X1\":\"SELECT * FROM time\"}}";
+
+  auto vec = std::vector<const std::string>({strQueryEmpty,
+                                             strQueryNotObject,
+                                             strQueryIntId,
+                                             strQueryNegativeAccel,
+                                             strQueryAccelLong,
+                                             strDiscNotObject,
+                                             strDiscNoQuery});
+
+  startServer();
+
+  if (!EnableMockDistPlugin()) {
+    return;
+  }
+
+  for (auto& strQuery : vec) {
+    MockDistributedClearWrites();
+
+    auto status = MockDistributedSetReadValue(strQuery);
+    EXPECT_TRUE(status.ok());
+
+    auto dist = Distributed();
+
+    status = dist.pullUpdates();
+    // EXPECT_FALSE(status.ok()); // only invalid queries fails parse
+
+    status = dist.runQueries();
+    EXPECT_TRUE(status.ok());
+
+    EXPECT_EQ(1U, dist.numDistReads());
+    EXPECT_EQ(0U, dist.numDistWrites());
+  }
 }
 
 } // namespace osquery
