@@ -210,19 +210,21 @@ TEST_F(DistributedTests, test_write_endpoint_down) {
   s = dist.runQueries();
   EXPECT_FALSE(s.ok());
 
-  s = dist.runQueries();
-  EXPECT_FALSE(s.ok());
+  // NOTE : results get dropped
+
+  // Try again with empty read, and write endpoint back up
+
+  status = MockDistributedSetReadValue("{}");
+  MockDistributedWriteEndpointEnabled(false);
 
   s = dist.pullUpdates();
-  EXPECT_FALSE(s.ok());
-  /*
-    auto dist = Distributed();
-    while (!interrupted()) {
-      dist.pullUpdates();
-      if (dist.getPendingQueryCount() > 0) {
-        dist.runQueries();
-      }
-  */
+  EXPECT_TRUE(s.ok());
+
+  s = dist.runQueries(); // no results to send, will not call write
+  EXPECT_TRUE(s.ok());
+
+  EXPECT_EQ(2U, dist.numDistReads());
+  EXPECT_EQ(1U, dist.numDistWrites());
 }
 
 } // namespace osquery

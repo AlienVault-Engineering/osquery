@@ -64,14 +64,9 @@ Status Distributed::pullUpdates() {
     return Status(1, "Missing distributed plugin: " + distributed_plugin);
   }
 
-  if (results_.size() > 0) {
-    // still have some results we haven't been able to report.
-    // Is the distributed_write endpoint down?
+  // should not have any work in progress when this is called.
 
-    if (!flushCompleted().ok()) {
-      return Status(1, "Waiting to report");
-    }
-  }
+  assert(results_.size() == 0);
 
   reportInterruptedWork();
 
@@ -188,31 +183,22 @@ Status Distributed::flushCompleted() {
                      response);
   numDistWrites_++;
 
-  // NOTE: If unable to report, results kept in memory until retry
-
+  // The TLS plugin will retry FLAGS_distributed_tls_max_attempts(3) times.
+  // If unsuccessful, we drop it on the floor.
   if (!s.ok()) {
-    LOG(WARNING) << "writeResults failed";
-    return s;
-  }
-
-  // successfully reported.  Cleanup if possible
-
-  if (getPendingQueryCount() == 0) {
-    // all queries done and reported. clear all.
-
-    results_.clear();
-    deleteDatabaseValue(kPersistentSettings, "distributed_work");
-
-  } else {
-    // still some queries not yet executed. Mark reported.
-
-    for (auto& item : results_) {
-      if (item.isPending()) {
-        continue;
-      }
-      item.hasReported = true;
+    LOG(WARNING) << "writeResults failed:";
+    std::string str;
+    for (auto item : results_) {
+      str += "{ id:" + item.id;
+      str += " query:" + item.query + "}";
     }
+    LOG(WARNING) << "dropping distributed query results " << str;
   }
+
+  // cleanup
+
+  results_.clear();
+  deleteDatabaseValue(kPersistentSettings, "distributed_work");
 
   return s;
 }
