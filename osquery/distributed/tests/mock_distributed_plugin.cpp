@@ -43,20 +43,20 @@ class MockDistributedPlugin : public DistributedPlugin {
 
   Status getQueries(std::string& json) override {
     if (!isReadEndpointEnabled_) {
-      LOG(INFO) << "getQueries : emulating endpoint DOWN";
+      VLOG(1) << "getQueries : emulating endpoint DOWN";
       return Status(1, "Endpoint DOWN");
     }
     json = read_value_;
-    LOG(INFO) << "getQueries " << json;
+    VLOG(1) << "getQueries " << json;
     return Status();
   }
 
   Status writeResults(const std::string& json) override {
     if (!isWriteEndpointEnabled_) {
-      LOG(INFO) << "writeResults emulating endpoint DOWN";
+      VLOG(1) << "writeResults emulating endpoint DOWN";
       return Status(1, "Endpoint down");
     }
-    LOG(INFO) << "writeResults " << json;
+    VLOG(1) << "writeResults " << json;
     writes_.push_back(json);
     return Status();
   }

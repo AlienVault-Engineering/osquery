@@ -171,8 +171,8 @@ Status Distributed::runQueries() {
       if (FLAGS_distributed_intra_sleep > 30) {
         FLAGS_distributed_intra_sleep = 30;
       }
-      LOG(INFO) << "FLAGS_distributed_intra_sleep "
-                << FLAGS_distributed_intra_sleep;
+      VLOG(1) << "FLAGS_distributed_intra_sleep "
+              << FLAGS_distributed_intra_sleep;
       std::this_thread::sleep_for(
           std::chrono::seconds(FLAGS_distributed_intra_sleep));
     }
@@ -228,13 +228,12 @@ Status Distributed::flushCompleted() {
     // The TLS plugin will retry FLAGS_distributed_tls_max_attempts(3) times.
     // If unsuccessful, we drop it on the floor.
     if (!status.ok()) {
-      LOG(WARNING) << "writeResults failed:";
       std::string str;
       for (auto item : results_) {
         str += "{ id:" + item.id;
         str += " query:" + item.query + "}";
       }
-      LOG(WARNING) << "dropping distributed query results " << str;
+      LOG(WARNING) << "writeResults failed. dropping results " << str;
     }
   }
 
