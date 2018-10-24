@@ -136,6 +136,7 @@ ADD_OSQUERY_LIBRARY_CORE(osquery_tables_utility
   "${CMAKE_CURRENT_LIST_DIR}/utility/file.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/utility/osquery.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/utility/time.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/utility/peg.cpp"
 )
 
 if(NOT SKIP_AWS AND LINUX)

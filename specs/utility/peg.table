@@ -1,0 +1,8 @@
+table_name("peg")
+description("A cpu consuming table used for load testing watchdog.")
+schema([
+    Column("ts1", INTEGER, "timestamp"),
+    Column("ts2", INTEGER, "timestamp")
+])
+attributes(utility=True)
+implementation("peg@genPeg")
